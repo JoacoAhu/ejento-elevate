@@ -3,15 +3,36 @@ const OpenAI = require('openai');
 
 class OpenAIService {
     constructor() {
+        if (!process.env.OPENAI_API_KEY) {
+            console.warn('⚠️ OpenAI API key not found. AI features will be disabled.');
+            this.openai = null;
+            return;
+        }
+
         this.openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY
         });
     }
 
     /**
+     * Check if OpenAI is configured
+     */
+    isConfigured() {
+        return this.openai !== null;
+    }
+
+    /**
      * Generate a personalized response to a review based on technician persona
      */
     async generateReviewResponse(review, technician) {
+        if (!this.isConfigured()) {
+            return {
+                success: false,
+                error: 'OpenAI not configured',
+                fallbackResponse: this.getFallbackResponse(review.rating)
+            };
+        }
+
         try {
             const prompt = this.buildResponsePrompt(review, technician);
 
@@ -59,6 +80,10 @@ class OpenAIService {
      * Analyze sentiment of a review
      */
     async analyzeSentiment(reviewText) {
+        if (!this.isConfigured()) {
+            return this.basicSentimentAnalysis(reviewText);
+        }
+
         try {
             const completion = await this.openai.chat.completions.create({
                 model: process.env.OPENAI_MODEL || 'gpt-4o',
@@ -87,7 +112,6 @@ class OpenAIService {
 
         } catch (error) {
             console.error('Sentiment analysis failed:', error);
-            // Fallback sentiment analysis
             return this.basicSentimentAnalysis(reviewText);
         }
     }
@@ -96,6 +120,10 @@ class OpenAIService {
      * Extract technician name from review text
      */
     async extractTechnicianName(reviewText, possibleNames) {
+        if (!this.isConfigured()) {
+            return this.basicNameExtraction(reviewText, possibleNames);
+        }
+
         try {
             const completion = await this.openai.chat.completions.create({
                 model: process.env.OPENAI_MODEL || 'gpt-4o',
@@ -139,13 +167,13 @@ REVIEW DETAILS:
 - Rating: ${review.rating}/5 stars
 - Review: "${review.text}"
 - Date: ${review.date}
-- Sentiment: ${review.sentiment}
+- Sentiment: ${review.sentiment || 'unknown'}
 
 TECHNICIAN PERSONA:
 - Name: ${technician?.name || 'Our technician'}
 - Communication Style: ${persona.communicationStyle}
 - Personality: ${persona.personality}
-- Industry: Home services/pest control
+- Traits: ${persona.traits?.join(', ') || 'professional, helpful'}
 
 RESPONSE REQUIREMENTS:
 1. Write as if you are ${technician?.name || 'the technician'} responding personally
@@ -154,7 +182,7 @@ RESPONSE REQUIREMENTS:
 4. Keep response under 150 words
 5. Be authentic and ${persona.personality}
 6. Include gratitude for the feedback
-7. ${review.rating >= 4 ? 'Express appreciation' : 'Address concerns professionally'}
+7. ${review.rating >= 4 ? 'Express appreciation for positive feedback' : 'Address concerns professionally and offer solutions'}
 8. Invite future business if appropriate
 
 Generate only the response text, no additional formatting or explanations.`;
@@ -213,20 +241,33 @@ Remember: Each technician has a unique voice - capture that authenticity while m
      * Basic sentiment analysis fallback
      */
     basicSentimentAnalysis(text) {
-        const positiveWords = ['great', 'excellent', 'amazing', 'professional', 'recommend', 'satisfied', 'helpful'];
-        const negativeWords = ['terrible', 'awful', 'poor', 'disappointed', 'horrible', 'worst', 'unprofessional'];
+        const positiveWords = ['great', 'excellent', 'amazing', 'professional', 'recommend', 'satisfied', 'helpful', 'fantastic', 'outstanding'];
+        const negativeWords = ['terrible', 'awful', 'poor', 'disappointed', 'horrible', 'worst', 'unprofessional', 'rude', 'late'];
 
         const lowerText = text.toLowerCase();
         const positiveCount = positiveWords.filter(word => lowerText.includes(word)).length;
         const negativeCount = negativeWords.filter(word => lowerText.includes(word)).length;
 
+        let sentiment, score;
+
         if (positiveCount > negativeCount) {
-            return { sentiment: 'positive', score: 0.7, confidence: 0.6 };
+            sentiment = 'positive';
+            score = Math.min(0.6 + (positiveCount * 0.1), 1.0);
         } else if (negativeCount > positiveCount) {
-            return { sentiment: 'negative', score: 0.3, confidence: 0.6 };
+            sentiment = 'negative';
+            score = Math.max(0.4 - (negativeCount * 0.1), 0.0);
         } else {
-            return { sentiment: 'neutral', score: 0.5, confidence: 0.5 };
+            sentiment = 'neutral';
+            score = 0.5;
         }
+
+        return {
+            sentiment,
+            score,
+            confidence: 0.6,
+            keywords: [...positiveWords.filter(word => lowerText.includes(word)),
+                ...negativeWords.filter(word => lowerText.includes(word))]
+        };
     }
 
     /**
@@ -240,7 +281,7 @@ Remember: Each technician has a unique voice - capture that authenticity while m
             const nameParts = lowerName.split(' ');
 
             // Check if any part of the name appears in the text
-            if (nameParts.some(part => lowerText.includes(part))) {
+            if (nameParts.some(part => part.length > 2 && lowerText.includes(part))) {
                 return name;
             }
         }
@@ -252,6 +293,13 @@ Remember: Each technician has a unique voice - capture that authenticity while m
      * Test the OpenAI connection
      */
     async testConnection() {
+        if (!this.isConfigured()) {
+            return {
+                success: false,
+                error: 'OpenAI API key not configured'
+            };
+        }
+
         try {
             const completion = await this.openai.chat.completions.create({
                 model: process.env.OPENAI_MODEL || 'gpt-4o',
