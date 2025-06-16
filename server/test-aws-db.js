@@ -1,16 +1,17 @@
+// Update server/test-aws-db.js for LOCAL testing
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-// Test connection without specifying database first
 const sequelize = new Sequelize(
-    '', // No database specified
+    process.env.DB_NAME,
     process.env.DB_USERNAME,
     process.env.DB_PASSWORD,
     {
         host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
+        port: process.env.DB_PORT || 3306,
         dialect: 'mysql',
-        logging: false
+        // Remove SSL for local connection
+        logging: console.log
     }
 );
 
@@ -19,26 +20,16 @@ async function testLocalConnection() {
         console.log('🔄 Testing Local MySQL connection...');
         console.log('📍 Host:', process.env.DB_HOST);
         console.log('👤 User:', process.env.DB_USERNAME);
-        console.log('🔑 Password:', process.env.DB_PASSWORD ? `[${process.env.DB_PASSWORD.length} chars]` : 'EMPTY');
 
-        // Test basic connection
         await sequelize.authenticate();
-        console.log('✅ MySQL connection successful!');
+        console.log('✅ Local MySQL connection successful!');
 
-        // Show existing databases
-        const [databases] = await sequelize.query('SHOW DATABASES');
-        console.log('📋 Available databases:', databases.map(db => db.Database));
-
-        // Create our database if it doesn't exist
-        await sequelize.query('CREATE DATABASE IF NOT EXISTS ejento_elevate CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-        console.log('✅ Database ejento_elevate created or verified');
+        const [results] = await sequelize.query('SELECT DATABASE() as db_name, VERSION() as version');
+        console.log('📊 Connected to database:', results[0].db_name);
+        console.log('🔧 MySQL Version:', results[0].version);
 
     } catch (error) {
         console.error('❌ Connection failed:', error.message);
-        console.log('\n🔧 Let\'s try a few things:');
-        console.log('1. Check if MySQL service is running');
-        console.log('2. Try connecting with no password');
-        console.log('3. Create a new user specifically for this project');
     } finally {
         await sequelize.close();
     }
