@@ -1,0 +1,83 @@
+{
+  "development": {
+    "username": "admin",
+    "password": "~l6[wAjpF]lN#(f0CvJN:aLjkRUa",
+    "database": "ejento_elevate",
+    "host": "ejento-aurora-cluster-instance-0.csa2vgpdt3t3.us-east-1.rds.amazonaws.com",
+    "port": 3306,
+    "dialect": "mysql",
+    "dialectOptions": {
+      "charset": "utf8mb4",
+      "ssl": {
+        "require": true,
+        "rejectUnauthorized": false
+      },
+      "connectTimeout": 60000,
+      "acquireTimeout": 60000,
+      "timeout": 60000
+    },
+    "define": {
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "timestamps": true,
+      "underscored": false
+    },
+    "pool": {
+      "max": 10,
+      "min": 0,
+      "acquire": 30000,
+      "idle": 10000
+    }
+  },
+  "test": {
+    "username": "admin",
+    "password": "~l6[wAjpF]lN#(f0CvJN:aLjkRUa",
+    "database": "ejento_elevate_test",
+    "host": "ejento-aurora-cluster-instance-0.csa2vgpdt3t3.us-east-1.rds.amazonaws.com",
+    "port": 3306,
+    "dialect": "mysql",
+    "dialectOptions": {
+      "charset": "utf8mb4",
+      "ssl": {
+        "require": true,
+        "rejectUnauthorized": false
+      }
+    },
+    "define": {
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci"
+    },
+    "logging": false
+  },
+  "production": {
+    "username": "admin",
+    "password": "~l6[wAjpF]lN#(f0CvJN:aLjkRUa",
+    "database": "ejento_elevate_prod",
+    "host": "ejento-aurora-cluster-instance-0.csa2vgpdt3t3.us-east-1.rds.amazonaws.com",
+    "port": 3306,
+    "dialect": "mysql",
+    "dialectOptions": {
+      "charset": "utf8mb4",
+      "ssl": {
+        "require": true,
+        "rejectUnauthorized": false
+      },
+      "connectTimeout": 60000,
+      "acquireTimeout": 60000,
+      "timeout": 60000
+    },
+    "define": {
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "timestamps": true,
+      "underscored": false
+    },
+    "pool": {
+      "max": 20,
+      "min": 5,
+      "acquire": 30000,
+      "idle": 10000
+    },
+    "logging": false
+  }
+}
