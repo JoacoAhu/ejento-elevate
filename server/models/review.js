@@ -91,7 +91,20 @@ module.exports = (sequelize, DataTypes) => {
     publishedPlatform: {
       type: DataTypes.STRING,
       allowNull: true
-    }
+    },
+    responseApprovalStatus: {
+      type: DataTypes.STRING,
+      defaultValue: 'pending',
+      allowNull: false
+    },
+    responseApprovedBy: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    responseApprovedAt: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
   }, {
     sequelize,
     modelName: 'Review',

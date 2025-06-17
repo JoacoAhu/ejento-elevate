@@ -259,6 +259,87 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   }
 }
 
+.ai-response {
+  &__approve-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: $white;
+    background-color: $success-color;
+    border: none;
+    border-radius: $border-radius;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background-color: #15803d;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $success-color;
+      }
+    }
+  }
+
+  // NEW: Approval Status Indicators
+  &__approval-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+
+    &--approved {
+      background-color: rgba($success-color, 0.1);
+      color: $success-color;
+    }
+
+  }
+
+  // Update existing actions to handle more buttons
+  &__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+// Responsive updates for new buttons
+@media (max-width: 768px) {
+  .ai-response {
+    &__actions {
+      flex-direction: column;
+      gap: 6px;
+      align-items: stretch;
+    }
+
+    &__regenerate-btn,
+    &__publish-btn,
+    &__approve-btn,
+    &__reject-btn {
+      justify-content: center;
+      width: 100%;
+    }
+
+    &__approval-status {
+      justify-content: center;
+      text-align: center;
+    }
+  }
+}
+
 // Reviews List Block
 .reviews-list {
   padding: 24px;
@@ -291,6 +372,120 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
   &--neutral {
     border-left: 4px solid $gray-300;
+  }
+
+  // MOVED ALL APPROVAL STYLES HERE - INSIDE .review-card block
+  &--flagged {
+    border-left-width: 4px;
+    border-left-color: $warning-color;
+    background-color: rgba($warning-color, 0.02);
+  }
+
+  // Approval Actions Element
+  &__approval-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  &__approved-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  // Flag Element
+  &__flag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+
+    &--negative {
+      background-color: rgba($warning-color, 0.1);
+      color: $warning-color;
+    }
+
+    &--approved {
+      background-color: rgba($success-color, 0.1);
+      color: $success-color;
+    }
+
+    &--manual {
+      background-color: rgba($neutral-color, 0.1);
+      color: $neutral-color;
+    }
+  }
+
+  // Approval Buttons Element
+  &__approval-buttons {
+    display: flex;
+    gap: 6px;
+  }
+
+  &__approve-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: $success-color;
+    color: $white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: $border-radius;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background-color: #15803d;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $success-color;
+      }
+    }
+  }
+
+  &__reject-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: $white;
+    color: $neutral-color;
+    border: 1px solid $gray-300;
+    padding: 6px 10px;
+    border-radius: $border-radius;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background-color: $gray-50;
+      border-color: $gray-500;
+      color: $gray-700;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $white;
+        border-color: $gray-300;
+        color: $neutral-color;
+      }
+    }
   }
 
   // Header Element
@@ -466,6 +661,15 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     &:hover {
       background-color: #1d4ed8;
     }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $primary-color;
+      }
+    }
   }
 
   &__menu-btn {
@@ -484,63 +688,7 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   }
 }
 
-// Responsive Design
-@media (max-width: 768px) {
-  .dashboard {
-    padding: 16px;
-
-    &__header {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 16px;
-    }
-
-    &__stats {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .reviews-section {
-    &__header {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 16px;
-    }
-
-    &__controls {
-      flex-direction: column;
-      align-items: stretch;
-    }
-  }
-
-  .search-input {
-    min-width: auto;
-  }
-
-  .review-card {
-    &__header {
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    &__footer {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 12px;
-    }
-
-    &__technician {
-      justify-content: flex-start;
-    }
-
-    &__actions {
-      justify-content: flex-end;
-    }
-  }
-}
-
-// AI Response Block - Add this to your Dashboard.scss file after the review-card block
-
+// AI Response Block
 .ai-response {
   margin-top: 16px;
   border-top: 1px solid $gray-200;
@@ -617,6 +765,39 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     &::placeholder {
       color: $gray-500;
     }
+
+    // Custom Scrollbar Styles
+    &::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: $gray-100;
+      border-radius: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: $gray-300;
+      border-radius: 4px;
+
+      &:hover {
+        background: $gray-500;
+      }
+    }
+
+    // Firefox support
+    scrollbar-width: thin;
+    scrollbar-color: $gray-300 $gray-100;
+
+    &:focus {
+      &::-webkit-scrollbar-thumb {
+        background: rgba($primary-color, 0.6);
+
+        &:hover {
+          background: $primary-color;
+        }
+      }
+    }
   }
 
   // Actions Element
@@ -624,39 +805,6 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-  }
-
-  // Custom Scrollbar Styles
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: $gray-100;
-    border-radius: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: $gray-300;
-    border-radius: 4px;
-
-    &:hover {
-      background: $gray-500;
-    }
-  }
-
-  // Firefox support
-  scrollbar-width: thin;
-  scrollbar-color: $gray-300 $gray-100;
-
-  &:focus {
-    &::-webkit-scrollbar-thumb {
-      background: rgba($primary-color, 0.6);
-
-      &:hover {
-        background: $primary-color;
-      }
-    }
   }
 
   // Regenerate Button Element
@@ -719,36 +867,88 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   }
 }
 
-// Update to existing review-card block - add these modifiers to the existing &__respond-btn and &__status selectors
-
-// Add this to the existing &__respond-btn in review-card block
-.review-card {
-  &__respond-btn {
-    // ... existing styles remain ...
-
-    &:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-
-      &:hover {
-        background-color: $primary-color;
-      }
-    }
-  }
-
-  // Update the existing &__status selector to include new modifiers
-  &__status {
-    // ... existing styles remain ...
-
-    &--responded {
-      background-color: rgba($success-color, 0.1);
-      color: $success-color;
-    }
-  }
-}
-
-// Responsive Design for AI Response
+// Responsive Design
 @media (max-width: 768px) {
+  .dashboard {
+    padding: 16px;
+
+    &__header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+
+    &__stats {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .reviews-section {
+    &__header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+
+    &__controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  .search-input {
+    min-width: auto;
+  }
+
+  .review-card {
+    &__header {
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    &__footer {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+    }
+
+    &__technician {
+      justify-content: flex-start;
+    }
+
+    &__actions {
+      justify-content: flex-end;
+    }
+
+    // Responsive Design for Approval Elements
+    &__approval-actions {
+      align-items: stretch;
+    }
+
+    &__approval-buttons {
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    &__approved-actions {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+
+    &__approve-btn,
+    &__reject-btn {
+      justify-content: center;
+      width: 100%;
+    }
+
+    &__flag {
+      text-align: center;
+      justify-content: center;
+    }
+  }
+
+  // Responsive Design for AI Response
   .ai-response {
     padding: 12px;
     margin-top: 12px;

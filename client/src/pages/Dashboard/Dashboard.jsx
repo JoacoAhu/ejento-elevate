@@ -9,14 +9,17 @@ import {
     Search,
     MoreVertical,
     Bot,
-    Send
+    Send,
+    CheckCircle,
+    ThumbsUp
 } from 'lucide-react';
 import './Dashboard.scss';
 
 const Dashboard = () => {
     const [reviews, setReviews] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [loadingResponses, setLoadingResponses] = useState({}); // Track loading state per review
+    const [loadingResponses, setLoadingResponses] = useState({});
+    const [loadingResponseApprovals, setLoadingResponseApprovals] = useState({}); // Track response approval loading
     const [stats, setStats] = useState({
         totalReviews: 0,
         averageRating: 0,
@@ -25,7 +28,6 @@ const Dashboard = () => {
     });
 
     useEffect(() => {
-        // Fetch dashboard data
         fetchDashboardData();
     }, []);
 
@@ -58,6 +60,10 @@ const Dashboard = () => {
                     status: review.status,
                     published: review.published,
                     publishedAt: review.publishedAt,
+                    // Add response approval fields
+                    responseApprovalStatus: review.responseApprovalStatus || 'pending', // 'pending', 'approved'
+                    responseApprovedBy: review.responseApprovedBy || null,
+                    responseApprovedAt: review.responseApprovedAt || null,
                     // Add AI response if it exists
                     aiResponse: review.responseText ? {
                         text: review.responseText,
@@ -100,6 +106,24 @@ const Dashboard = () => {
             .toUpperCase();
     };
 
+    // Helper function to determine if a review is negative
+    const isNegativeReview = (review) => {
+        return review.rating <= 2 || review.sentiment === 'negative';
+    };
+
+    // Helper function to check if response can be published
+    const canPublishResponse = (review) => {
+        if (!review.aiResponse) return false;
+
+        // If it's a negative review, check response approval status
+        if (isNegativeReview(review)) {
+            return review.responseApprovalStatus === 'approved';
+        }
+
+        // Positive reviews can be published directly
+        return true;
+    };
+
     const filteredReviews = reviews.filter(review => {
         const matchesSearch = review.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             review.technicianName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -121,7 +145,6 @@ const Dashboard = () => {
             const result = await response.json();
 
             if (result.success) {
-                // Refetch data to get the latest from database
                 await fetchDashboardData();
             } else {
                 alert(`Error: ${result.message}`);
@@ -130,6 +153,37 @@ const Dashboard = () => {
             alert(`Error: ${error.message}`);
         } finally {
             setLoadingResponses(prev => ({ ...prev, [reviewId]: false }));
+        }
+    };
+
+    // Approve AI-generated response
+    const approveResponse = async (reviewId) => {
+        try {
+            setLoadingResponseApprovals(prev => ({ ...prev, [reviewId]: true }));
+
+            const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/approve-response`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'approve',
+                    approvedBy: 'current_user'
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                await fetchDashboardData();
+                alert('Response approved successfully!');
+            } else {
+                alert(`Error: ${result.message}`);
+            }
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+        } finally {
+            setLoadingResponseApprovals(prev => ({ ...prev, [reviewId]: false }));
         }
     };
 
@@ -146,7 +200,6 @@ const Dashboard = () => {
 
             if (result.success) {
                 alert('Response published successfully!');
-                // Refetch data to get the latest state from database
                 await fetchDashboardData();
             } else {
                 alert(`Error publishing response: ${result.message}`);
@@ -169,6 +222,78 @@ const Dashboard = () => {
                     }
                     : review
             )
+        );
+    };
+
+    const renderReviewActions = (review) => {
+        // If review has AI response already
+        if (review.aiResponse) {
+            return (
+                <span className="review-card__status review-card__status--responded">
+                    Response Generated
+                </span>
+            );
+        }
+
+        // All reviews (positive and negative) can generate AI response directly
+        return (
+            <button
+                className="review-card__respond-btn"
+                onClick={() => generateAIResponse(review.id)}
+                disabled={loadingResponses[review.id]}
+            >
+                {loadingResponses[review.id] ? 'Generating...' : 'Generate Response'}
+            </button>
+        );
+    };
+
+    // Render AI response actions with simplified approval workflow
+    const renderAIResponseActions = (review) => {
+        const isNegative = isNegativeReview(review);
+        const needsApproval = isNegative && review.responseApprovalStatus === 'pending';
+        const isApproved = review.responseApprovalStatus === 'approved';
+
+        return (
+            <div className="ai-response__actions">
+                <button
+                    className="ai-response__regenerate-btn"
+                    onClick={() => generateAIResponse(review.id)}
+                    disabled={loadingResponses[review.id]}
+                >
+                    Regenerate
+                </button>
+
+                {/* Show approval button for negative reviews that need approval */}
+                {needsApproval && (
+                    <button
+                        className="ai-response__approve-btn"
+                        onClick={() => approveResponse(review.id)}
+                        disabled={loadingResponseApprovals[review.id]}
+                    >
+                        <ThumbsUp size={14} />
+                        {loadingResponseApprovals[review.id] ? 'Approving...' : 'Approve Response'}
+                    </button>
+                )}
+
+                {/* Show approval status for negative reviews that are approved */}
+                {isNegative && isApproved && (
+                    <span className="ai-response__approval-status ai-response__approval-status--approved">
+                        <CheckCircle size={14} />
+                        Response Approved
+                    </span>
+                )}
+
+                {/* Publish button - only show if response can be published */}
+                {canPublishResponse(review) && (
+                    <button
+                        className="ai-response__publish-btn"
+                        onClick={() => publishResponse(review.id)}
+                    >
+                        <Send size={14} />
+                        Publish Response
+                    </button>
+                )}
+            </div>
         );
     };
 
@@ -285,7 +410,9 @@ const Dashboard = () => {
                             {filteredReviews.map((review, index) => (
                                 <motion.div
                                     key={review.id}
-                                    className={`review-card review-card--${review.sentiment}`}
+                                    className={`review-card review-card--${review.sentiment} ${
+                                        isNegativeReview(review) ? 'review-card--flagged' : ''
+                                    }`}
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.1 }}
@@ -330,19 +457,7 @@ const Dashboard = () => {
                                         </div>
 
                                         <div className="review-card__actions">
-                                            {!review.aiResponse ? (
-                                                <button
-                                                    className="review-card__respond-btn"
-                                                    onClick={() => generateAIResponse(review.id)}
-                                                    disabled={loadingResponses[review.id]}
-                                                >
-                                                    {loadingResponses[review.id] ? 'Generating...' : 'Generate Response'}
-                                                </button>
-                                            ) : (
-                                                <span className="review-card__status review-card__status--responded">
-                                                    Response Generated
-                                                </span>
-                                            )}
+                                            {renderReviewActions(review)}
 
                                             <button className="review-card__menu-btn">
                                                 <MoreVertical size={16} />
@@ -377,22 +492,8 @@ const Dashboard = () => {
                                                 />
                                             </div>
 
-                                            <div className="ai-response__actions">
-                                                <button
-                                                    className="ai-response__regenerate-btn"
-                                                    onClick={() => generateAIResponse(review.id)}
-                                                    disabled={loadingResponses[review.id]}
-                                                >
-                                                    Regenerate
-                                                </button>
-                                                <button
-                                                    className="ai-response__publish-btn"
-                                                    onClick={() => publishResponse(review.id)}
-                                                >
-                                                    <Send size={14} />
-                                                    Publish Response
-                                                </button>
-                                            </div>
+                                            {/* Simplified AI Response Actions */}
+                                            {renderAIResponseActions(review)}
                                         </motion.div>
                                     )}
                                 </motion.div>

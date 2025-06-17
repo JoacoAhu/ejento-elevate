@@ -146,7 +146,20 @@ const Review = sequelize.define('Review', {
     publishedPlatform: {
         type: DataTypes.STRING,
         allowNull: true
-    }
+    },
+    responseApprovalStatus: {
+        type: DataTypes.STRING,
+        defaultValue: 'pending',
+        allowNull: false
+    },
+    responseApprovedBy: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    responseApprovedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
 });
 
 // Define associations
@@ -241,7 +254,8 @@ async function createSampleData() {
             status: 'responded',
             responseText: 'Thank you so much for the kind words, Jamal! I really appreciate you taking the time to share your experience.',
             responseDate: new Date('2022-09-30'),
-            source: 'google'
+            source: 'google',
+            responseApprovalStatus: 'pending'
         });
 
         await Review.create({
@@ -254,7 +268,8 @@ async function createSampleData() {
             sentiment: 'positive',
             sentimentScore: 0.7,
             status: 'pending',
-            source: 'google'
+            source: 'google',
+            responseApprovalStatus: 'pending'
         });
 
         await Review.create({
@@ -267,7 +282,8 @@ async function createSampleData() {
             sentiment: 'negative',
             sentimentScore: 0.1,
             status: 'pending',
-            source: 'google'
+            source: 'google',
+            responseApprovalStatus: 'pending'
         });
 
         console.log('✅ Sample data created successfully.');
@@ -298,6 +314,59 @@ app.get('/health', async (req, res) => {
     }
 });
 
+app.post('/api/reviews/:id/approve', async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+        const { action, approvedBy } = req.body;
+
+        const review = await Review.findByPk(reviewId);
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+
+        if (!isNegative) {
+            return res.status(400).json({
+                success: false,
+                message: 'Only negative reviews require approval'
+            });
+        }
+
+        const approvalStatus = action === 'approve' ? 'approved' : 'rejected';
+
+        await review.update({
+            responseApprovalStatus: approvalStatus,
+            responseApprovedBy: approvedBy,
+            responseApprovedAt: new Date()
+        });
+
+        console.log(`✅ Review ${reviewId} ${approvalStatus} by ${approvedBy}`);
+
+        res.json({
+            success: true,
+            message: `Review ${approvalStatus} successfully`,
+            data: {
+                reviewId: reviewId,
+                responseApprovalStatus: approvalStatus,
+                responseApprovedBy: approvedBy,
+                responseApprovedAt: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating approval status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update approval status',
+            error: error.message
+        });
+    }
+});
 // Test OpenAI connection
 app.get('/api/ai/test', async (req, res) => {
     try {
@@ -323,12 +392,12 @@ app.get('/api/reviews', async (req, res) => {
             include: [
                 {
                     model: Technician,
-                    as: 'technician', // Use the alias from your model
+                    as: 'technician',
                     attributes: ['id', 'name', 'email', 'persona']
                 },
                 {
                     model: Client,
-                    as: 'client', // Use the alias from your model
+                    as: 'client',
                     attributes: ['id', 'name']
                 }
             ],
@@ -352,8 +421,18 @@ app.get('/api/reviews', async (req, res) => {
             published: review.status === 'published',
             publishedAt: review.publishedAt,
             publishedBy: review.publishedBy,
-            publishedPlatform: review.publishedPlatform
+            publishedPlatform: review.publishedPlatform,
+            responseApprovalStatus: review.responseApprovalStatus || 'pending',
+            responseApprovedBy: review.responseApprovedBy,
+            responseApprovedAt: review.responseApprovedAt
         }));
+
+        console.log('Sending reviews with response approval status:', formattedReviews.map(r => ({
+            id: r.id,
+            customerName: r.customerName,
+            responseApprovalStatus: r.responseApprovalStatus,
+            hasResponse: !!r.responseText
+        })));
 
         res.json({
             success: true,
@@ -411,7 +490,7 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
             include: [
                 {
                     model: Technician,
-                    as: 'technician', // Use the alias
+                    as: 'technician',
                     attributes: ['id', 'name', 'email', 'persona']
                 }
             ]
@@ -434,7 +513,7 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
                 date: review.reviewDate,
                 sentiment: review.sentiment
             },
-            review.technician // Note: using 'technician' instead of 'Technician'
+            review.technician
         );
 
         if (!aiResult.success) {
@@ -446,11 +525,17 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
             });
         }
 
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+        const responseApprovalStatus = isNegative ? 'pending' : 'approved';
+
         // Update the review in database
         await review.update({
             responseText: aiResult.response,
             responseDate: new Date(),
-            status: 'responded'
+            status: 'responded',
+            responseApprovalStatus: responseApprovalStatus,
+            responseApprovedBy: isNegative ? null : 'system',
+            responseApprovedAt: isNegative ? null : new Date()
         });
 
         res.json({
@@ -460,11 +545,13 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
                 reviewId: reviewId,
                 response: aiResult.response,
                 usage: aiResult.usage,
+                responseApprovalStatus: responseApprovalStatus,
                 review: {
                     id: review.id,
                     responseText: aiResult.response,
                     responseDate: new Date(),
-                    status: 'responded'
+                    status: 'responded',
+                    responseApprovalStatus: responseApprovalStatus
                 }
             }
         });
@@ -479,6 +566,67 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
     }
 });
 
+app.post('/api/reviews/:id/approve-response', async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+        const { approvedBy } = req.body;
+
+        const review = await Review.findByPk(reviewId);
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        if (!review.responseText) {
+            return res.status(400).json({
+                success: false,
+                message: 'No response to approve. Generate a response first.'
+            });
+        }
+
+        // Check if review is negative
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+
+        if (!isNegative) {
+            return res.status(400).json({
+                success: false,
+                message: 'Only negative reviews require response approval'
+            });
+        }
+
+        // Approve the response
+        await review.update({
+            responseApprovalStatus: 'approved',
+            responseApprovedBy: approvedBy,
+            responseApprovedAt: new Date()
+        });
+
+        console.log(`✅ Review ${reviewId} response approved by ${approvedBy}`);
+
+        res.json({
+            success: true,
+            message: 'Response approved successfully',
+            data: {
+                reviewId: reviewId,
+                responseApprovalStatus: 'approved',
+                responseApprovedBy: approvedBy,
+                responseApprovedAt: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error approving response:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to approve response',
+            error: error.message
+        });
+    }
+});
+
 // Publish response to review platform
 app.post('/api/reviews/:id/publish-response', async (req, res) => {
     try {
@@ -488,7 +636,7 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
             include: [
                 {
                     model: Technician,
-                    as: 'technician', // Use the alias
+                    as: 'technician',
                     attributes: ['id', 'name', 'email', 'persona']
                 }
             ]
@@ -508,10 +656,14 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
             });
         }
 
-        if (review.status === 'published') {
-            return res.status(400).json({
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+
+        if (isNegative && review.responseApprovalStatus !== 'approved') {
+            return res.status(403).json({
                 success: false,
-                message: 'Response has already been published'
+                message: 'Negative review responses must be approved before publishing',
+                requiresResponseApproval: true,
+                responseApprovalStatus: review.responseApprovalStatus
             });
         }
 
@@ -522,8 +674,7 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
 
         const publishedAt = new Date();
 
-        // Update the review in the database with published status and timestamp
-        const updatedReview = await review.update({
+        await review.update({
             status: 'published',
             publishedAt: publishedAt,
             publishedBy: 'system',
@@ -532,7 +683,7 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
 
         res.json({
             success: true,
-            message: 'Response published successfully and saved to database',
+            message: 'Response published successfully',
             data: {
                 reviewId: reviewId,
                 platform: review.source,
