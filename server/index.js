@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const { Sequelize, DataTypes } = require('sequelize');
+const { Sequelize, DataTypes, Op } = require('sequelize');
 require('dotenv').config();
 
 // Import OpenAI service
@@ -88,6 +88,7 @@ const Technician = sequelize.define('Technician', {
     }
 });
 
+// UPDATED Review model with publishing fields
 const Review = sequelize.define('Review', {
     id: {
         type: DataTypes.INTEGER,
@@ -131,16 +132,31 @@ const Review = sequelize.define('Review', {
     source: {
         type: DataTypes.STRING,
         defaultValue: 'google'
+    },
+    // ADDED PUBLISHING FIELDS
+    publishedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    publishedBy: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: 'system'
+    },
+    publishedPlatform: {
+        type: DataTypes.STRING,
+        allowNull: true
     }
 });
 
 // Define associations
-Client.hasMany(Technician, { foreignKey: 'clientId' });
-Client.hasMany(Review, { foreignKey: 'clientId' });
-Technician.belongsTo(Client, { foreignKey: 'clientId' });
-Technician.hasMany(Review, { foreignKey: 'technicianId' });
-Review.belongsTo(Client, { foreignKey: 'clientId' });
-Review.belongsTo(Technician, { foreignKey: 'technicianId' });
+// In your main server file, update the model associations:
+Client.hasMany(Technician, { foreignKey: 'clientId', as: 'technicians' });
+Client.hasMany(Review, { foreignKey: 'clientId', as: 'reviews' });
+Technician.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+Technician.hasMany(Review, { foreignKey: 'technicianId', as: 'reviews' });
+Review.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+Review.belongsTo(Technician, { foreignKey: 'technicianId', as: 'technician' });
 
 // Middleware
 app.use(helmet());
@@ -300,17 +316,19 @@ app.get('/api/ai/test', async (req, res) => {
     }
 });
 
-// Get all reviews
+// UPDATED Get all reviews endpoint with publishing fields
 app.get('/api/reviews', async (req, res) => {
     try {
         const reviews = await Review.findAll({
             include: [
                 {
                     model: Technician,
+                    as: 'technician', // Use the alias from your model
                     attributes: ['id', 'name', 'email', 'persona']
                 },
                 {
                     model: Client,
+                    as: 'client', // Use the alias from your model
                     attributes: ['id', 'name']
                 }
             ],
@@ -321,15 +339,20 @@ app.get('/api/reviews', async (req, res) => {
         const formattedReviews = reviews.map(review => ({
             id: review.id,
             customerName: review.customerName,
-            technicianName: review.Technician ? review.Technician.name : 'Unknown',
+            technicianName: review.technician ? review.technician.name : 'Unknown',
             rating: review.rating,
             text: review.text,
             date: review.reviewDate,
             sentiment: review.sentiment,
-            responded: review.status === 'responded',
+            responded: review.status === 'responded' || review.status === 'published',
             source: review.source,
             responseText: review.responseText,
-            responseDate: review.responseDate
+            responseDate: review.responseDate,
+            status: review.status,
+            published: review.status === 'published',
+            publishedAt: review.publishedAt,
+            publishedBy: review.publishedBy,
+            publishedPlatform: review.publishedPlatform
         }));
 
         res.json({
@@ -357,7 +380,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
         const activeTechnicians = await Technician.count({ where: { isActive: true } });
 
         // Calculate total rewards (assuming $5 per positive review)
-        const positiveReviews = await Review.count({ where: { rating: { [sequelize.Op.gte]: 4 } } });
+        const positiveReviews = await Review.count({ where: { rating: { [Op.gte]: 4 } } });
         const totalRewards = positiveReviews * 5;
 
         res.json({
@@ -388,6 +411,7 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
             include: [
                 {
                     model: Technician,
+                    as: 'technician', // Use the alias
                     attributes: ['id', 'name', 'email', 'persona']
                 }
             ]
@@ -410,7 +434,7 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
                 date: review.reviewDate,
                 sentiment: review.sentiment
             },
-            review.Technician
+            review.technician // Note: using 'technician' instead of 'Technician'
         );
 
         if (!aiResult.success) {
@@ -455,6 +479,81 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
     }
 });
 
+// Publish response to review platform
+app.post('/api/reviews/:id/publish-response', async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+
+        const review = await Review.findByPk(reviewId, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician', // Use the alias
+                    attributes: ['id', 'name', 'email', 'persona']
+                }
+            ]
+        });
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        if (!review.responseText) {
+            return res.status(400).json({
+                success: false,
+                message: 'No response to publish. Generate a response first.'
+            });
+        }
+
+        if (review.status === 'published') {
+            return res.status(400).json({
+                success: false,
+                message: 'Response has already been published'
+            });
+        }
+
+        console.log(`Publishing response for review ${reviewId} to ${review.source}...`);
+
+        // Simulate API delay (remove this in production)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const publishedAt = new Date();
+
+        // Update the review in the database with published status and timestamp
+        const updatedReview = await review.update({
+            status: 'published',
+            publishedAt: publishedAt,
+            publishedBy: 'system',
+            publishedPlatform: review.source
+        });
+
+        res.json({
+            success: true,
+            message: 'Response published successfully and saved to database',
+            data: {
+                reviewId: reviewId,
+                platform: review.source,
+                responseText: review.responseText,
+                publishedAt: publishedAt.toISOString(),
+                customerName: review.customerName,
+                technician: review.technician ? review.technician.name : 'Unknown',
+                status: 'published'
+            }
+        });
+
+    } catch (error) {
+        console.error('Error publishing response:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to publish response',
+            error: error.message
+        });
+    }
+});
+
 // Analyze sentiment of text
 app.post('/api/ai/analyze-sentiment', async (req, res) => {
     try {
@@ -492,6 +591,7 @@ app.get('/api/technicians', async (req, res) => {
             include: [
                 {
                     model: Client,
+                    as: 'client', // Add the alias
                     attributes: ['id', 'name']
                 }
             ]
@@ -511,7 +611,6 @@ app.get('/api/technicians', async (req, res) => {
         });
     }
 });
-
 // Add new review (for testing)
 app.post('/api/reviews', async (req, res) => {
     try {
@@ -541,6 +640,41 @@ app.post('/api/reviews', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to create review',
+            error: error.message
+        });
+    }
+});
+
+// Optional: Add endpoint to get published responses
+app.get('/api/reviews/published', async (req, res) => {
+    try {
+        const publishedReviews = await Review.findAll({
+            where: {
+                status: 'published',
+                responseText: { [Op.not]: null } // Make sure Op is imported
+            },
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician', // Add the alias
+                    attributes: ['id', 'name', 'email']
+                }
+            ],
+            order: [['publishedAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: publishedReviews,
+            total: publishedReviews.length,
+            message: `Found ${publishedReviews.length} published responses`
+        });
+
+    } catch (error) {
+        console.error('Error fetching published reviews:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch published reviews',
             error: error.message
         });
     }

@@ -11,14 +11,37 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // define association here
+      Client.hasMany(models.Technician, {
+        foreignKey: 'clientId',
+        as: 'technicians'
+      });
+      Client.hasMany(models.Review, {
+        foreignKey: 'clientId',
+        as: 'reviews'
+      });
     }
   }
   Client.init({
-    name: DataTypes.STRING,
-    email: DataTypes.STRING,
-    googleAccountId: DataTypes.STRING,
-    googleBusinessProfileId: DataTypes.STRING,
-    isActive: DataTypes.BOOLEAN
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    googleAccountId: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    googleBusinessProfileId: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    }
   }, {
     sequelize,
     modelName: 'Client',

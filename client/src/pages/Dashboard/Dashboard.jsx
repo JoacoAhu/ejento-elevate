@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     Star,
-    TrendingUp,
     Users,
     DollarSign,
     MessageSquare,
@@ -16,7 +15,6 @@ import './Dashboard.scss';
 
 const Dashboard = () => {
     const [reviews, setReviews] = useState([]);
-    const [filterBy, setFilterBy] = useState('recent');
     const [searchTerm, setSearchTerm] = useState('');
     const [loadingResponses, setLoadingResponses] = useState({}); // Track loading state per review
     const [stats, setStats] = useState({
@@ -33,56 +31,42 @@ const Dashboard = () => {
 
     const fetchDashboardData = async () => {
         try {
-            // API calls would go here
-            // Mock data for now
-            setStats({
-                totalReviews: 1247,
-                averageRating: 4.7,
-                activeTechnicians: 28,
-                totalRewards: 12450
-            });
+            // Fetch stats from real API
+            const statsResponse = await fetch('http://localhost:8000/api/dashboard/stats');
+            const statsResult = await statsResponse.json();
 
-            setReviews([
-                {
-                    id: 1,
-                    customerName: 'Jamal Jefferson',
-                    technicianName: 'Antoine Clipper',
-                    rating: 5,
-                    text: 'Hivemind was the place you can count on when you need to get rid of pesky, unwelcome guests...',
-                    date: '2022-09-29',
-                    sentiment: 'positive',
-                    responded: true,
-                    source: 'google',
-                    aiResponse: {
-                        text: 'Thank you so much for your wonderful review, Jamal! We\'re thrilled to hear that Antoine provided you with excellent service and that we could help you resolve your pest issue effectively. Your trust in Hivemind means the world to us, and we look forward to serving you again in the future.',
-                        generatedAt: '2022-09-30T10:30:00Z'
-                    }
-                },
-                {
-                    id: 2,
-                    customerName: 'Saurabh Neis',
-                    technicianName: 'Marcus Wilson',
-                    rating: 5,
-                    text: 'Professional, but not professional. Did a great job on the services, but the technician was 3 hour...',
-                    date: '2022-09-24',
-                    sentiment: 'positive',
-                    responded: false,
-                    source: 'google',
-                    aiResponse: null
-                },
-                {
-                    id: 3,
-                    customerName: 'Christina Keller',
-                    technicianName: 'Unknown',
-                    rating: 1,
-                    text: 'Terrible customer service, wouldn\'t recommend to my worst enemies.',
-                    date: '2022-09-21',
-                    sentiment: 'negative',
-                    responded: false,
-                    source: 'google',
-                    aiResponse: null
-                }
-            ]);
+            if (statsResult.success) {
+                setStats(statsResult.data);
+            }
+
+            // Fetch reviews from real API
+            const reviewsResponse = await fetch('http://localhost:8000/api/reviews');
+            const reviewsResult = await reviewsResponse.json();
+
+            if (reviewsResult.success) {
+                // Transform the data to match your frontend format
+                const transformedReviews = reviewsResult.data.map(review => ({
+                    id: review.id,
+                    customerName: review.customerName,
+                    technicianName: review.technicianName,
+                    rating: review.rating,
+                    text: review.text,
+                    date: review.date,
+                    sentiment: review.sentiment,
+                    responded: review.responded,
+                    source: review.source,
+                    status: review.status,
+                    published: review.published,
+                    publishedAt: review.publishedAt,
+                    // Add AI response if it exists
+                    aiResponse: review.responseText ? {
+                        text: review.responseText,
+                        generatedAt: review.responseDate
+                    } : null
+                }));
+
+                setReviews(transformedReviews);
+            }
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
         }
@@ -125,7 +109,6 @@ const Dashboard = () => {
 
     const generateAIResponse = async (reviewId) => {
         try {
-            // Set loading state for this specific review
             setLoadingResponses(prev => ({ ...prev, [reviewId]: true }));
 
             const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/generate-response`, {
@@ -138,35 +121,20 @@ const Dashboard = () => {
             const result = await response.json();
 
             if (result.success) {
-                // Update the review with the AI response
-                setReviews(prevReviews =>
-                    prevReviews.map(review =>
-                        review.id === reviewId
-                            ? {
-                                ...review,
-                                responded: true,
-                                aiResponse: {
-                                    text: result.data.response,
-                                    generatedAt: new Date().toISOString()
-                                }
-                            }
-                            : review
-                    )
-                );
+                // Refetch data to get the latest from database
+                await fetchDashboardData();
             } else {
                 alert(`Error: ${result.message}`);
             }
         } catch (error) {
             alert(`Error: ${error.message}`);
         } finally {
-            // Clear loading state
             setLoadingResponses(prev => ({ ...prev, [reviewId]: false }));
         }
     };
 
     const publishResponse = async (reviewId) => {
         try {
-            // API call to publish the response to the review platform
             const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/publish-response`, {
                 method: 'POST',
                 headers: {
@@ -178,7 +146,8 @@ const Dashboard = () => {
 
             if (result.success) {
                 alert('Response published successfully!');
-                fetchDashboardData(); // Refresh data
+                // Refetch data to get the latest state from database
+                await fetchDashboardData();
             } else {
                 alert(`Error publishing response: ${result.message}`);
             }

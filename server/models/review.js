@@ -11,21 +11,87 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // define association here
+      Review.belongsTo(models.Client, {
+        foreignKey: 'clientId',
+        as: 'client'
+      });
+      Review.belongsTo(models.Technician, {
+        foreignKey: 'technicianId',
+        as: 'technician'
+      });
     }
   }
   Review.init({
-    clientId: DataTypes.INTEGER,
-    technicianId: DataTypes.INTEGER,
-    googleReviewId: DataTypes.STRING,
-    customerName: DataTypes.STRING,
-    rating: DataTypes.INTEGER,
-    text: DataTypes.TEXT,
-    sentiment: DataTypes.STRING,
-    sentimentScore: DataTypes.FLOAT,
-    reviewDate: DataTypes.DATE,
-    responseText: DataTypes.TEXT,
-    responseDate: DataTypes.DATE,
-    status: DataTypes.STRING
+    clientId: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    technicianId: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    googleReviewId: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    customerName: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    rating: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      validate: {
+        min: 1,
+        max: 5
+      }
+    },
+    text: {
+      type: DataTypes.TEXT,
+      allowNull: false
+    },
+    sentiment: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    sentimentScore: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    reviewDate: {
+      type: DataTypes.DATE,
+      allowNull: false
+    },
+    responseText: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    responseDate: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    status: {
+      type: DataTypes.STRING,
+      defaultValue: 'pending'
+    },
+    source: {
+      type: DataTypes.STRING,
+      defaultValue: 'google'
+    },
+    // NEW PUBLISHING FIELDS
+    publishedAt: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    publishedBy: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: 'system'
+    },
+    publishedPlatform: {
+      type: DataTypes.STRING,
+      allowNull: true
+    }
   }, {
     sequelize,
     modelName: 'Review',
