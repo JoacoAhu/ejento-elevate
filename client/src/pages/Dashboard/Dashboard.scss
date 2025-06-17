@@ -626,6 +626,39 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     justify-content: flex-end;
   }
 
+  // Custom Scrollbar Styles
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: $gray-100;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $gray-300;
+    border-radius: 4px;
+
+    &:hover {
+      background: $gray-500;
+    }
+  }
+
+  // Firefox support
+  scrollbar-width: thin;
+  scrollbar-color: $gray-300 $gray-100;
+
+  &:focus {
+    &::-webkit-scrollbar-thumb {
+      background: rgba($primary-color, 0.6);
+
+      &:hover {
+        background: $primary-color;
+      }
+    }
+  }
+
   // Regenerate Button Element
   &__regenerate-btn {
     padding: 8px 12px;
