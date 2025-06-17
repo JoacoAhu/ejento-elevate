@@ -145,7 +145,7 @@ Review.belongsTo(Technician, { foreignKey: 'technicianId' });
 // Middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
     credentials: true
 }));
 app.use(express.json());
@@ -397,13 +397,6 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Review not found'
-            });
-        }
-
-        if (review.status === 'responded') {
-            return res.status(400).json({
-                success: false,
-                message: 'Review already has a response'
             });
         }
 

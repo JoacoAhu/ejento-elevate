@@ -8,7 +8,9 @@ import {
     MessageSquare,
     Filter,
     Search,
-    MoreVertical
+    MoreVertical,
+    Bot,
+    Send
 } from 'lucide-react';
 import './Dashboard.scss';
 
@@ -16,6 +18,7 @@ const Dashboard = () => {
     const [reviews, setReviews] = useState([]);
     const [filterBy, setFilterBy] = useState('recent');
     const [searchTerm, setSearchTerm] = useState('');
+    const [loadingResponses, setLoadingResponses] = useState({}); // Track loading state per review
     const [stats, setStats] = useState({
         totalReviews: 0,
         averageRating: 0,
@@ -49,7 +52,11 @@ const Dashboard = () => {
                     date: '2022-09-29',
                     sentiment: 'positive',
                     responded: true,
-                    source: 'google'
+                    source: 'google',
+                    aiResponse: {
+                        text: 'Thank you so much for your wonderful review, Jamal! We\'re thrilled to hear that Antoine provided you with excellent service and that we could help you resolve your pest issue effectively. Your trust in Hivemind means the world to us, and we look forward to serving you again in the future.',
+                        generatedAt: '2022-09-30T10:30:00Z'
+                    }
                 },
                 {
                     id: 2,
@@ -60,7 +67,8 @@ const Dashboard = () => {
                     date: '2022-09-24',
                     sentiment: 'positive',
                     responded: false,
-                    source: 'google'
+                    source: 'google',
+                    aiResponse: null
                 },
                 {
                     id: 3,
@@ -71,7 +79,8 @@ const Dashboard = () => {
                     date: '2022-09-21',
                     sentiment: 'negative',
                     responded: false,
-                    source: 'google'
+                    source: 'google',
+                    aiResponse: null
                 }
             ]);
         } catch (error) {
@@ -116,6 +125,9 @@ const Dashboard = () => {
 
     const generateAIResponse = async (reviewId) => {
         try {
+            // Set loading state for this specific review
+            setLoadingResponses(prev => ({ ...prev, [reviewId]: true }));
+
             const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/generate-response`, {
                 method: 'POST',
                 headers: {
@@ -126,14 +138,69 @@ const Dashboard = () => {
             const result = await response.json();
 
             if (result.success) {
-                alert(`AI Response Generated: ${result.data.response}`);
-                fetchDashboardData();
+                // Update the review with the AI response
+                setReviews(prevReviews =>
+                    prevReviews.map(review =>
+                        review.id === reviewId
+                            ? {
+                                ...review,
+                                responded: true,
+                                aiResponse: {
+                                    text: result.data.response,
+                                    generatedAt: new Date().toISOString()
+                                }
+                            }
+                            : review
+                    )
+                );
             } else {
                 alert(`Error: ${result.message}`);
             }
         } catch (error) {
             alert(`Error: ${error.message}`);
+        } finally {
+            // Clear loading state
+            setLoadingResponses(prev => ({ ...prev, [reviewId]: false }));
         }
+    };
+
+    const publishResponse = async (reviewId) => {
+        try {
+            // API call to publish the response to the review platform
+            const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/publish-response`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                alert('Response published successfully!');
+                fetchDashboardData(); // Refresh data
+            } else {
+                alert(`Error publishing response: ${result.message}`);
+            }
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+        }
+    };
+
+    const editResponse = (reviewId, newText) => {
+        setReviews(prevReviews =>
+            prevReviews.map(review =>
+                review.id === reviewId
+                    ? {
+                        ...review,
+                        aiResponse: {
+                            ...review.aiResponse,
+                            text: newText
+                        }
+                    }
+                    : review
+            )
+        );
     };
 
     return (
@@ -294,14 +361,18 @@ const Dashboard = () => {
                                         </div>
 
                                         <div className="review-card__actions">
-                                            {review.responded ? (
-                                                <span className="review-card__status review-card__status--responded">
-                          Responded
-                        </span>
-                                            ) : (
-                                                <button className="review-card__respond-btn">
-                                                    Generate Response
+                                            {!review.aiResponse ? (
+                                                <button
+                                                    className="review-card__respond-btn"
+                                                    onClick={() => generateAIResponse(review.id)}
+                                                    disabled={loadingResponses[review.id]}
+                                                >
+                                                    {loadingResponses[review.id] ? 'Generating...' : 'Generate Response'}
                                                 </button>
+                                            ) : (
+                                                <span className="review-card__status review-card__status--responded">
+                                                    Response Generated
+                                                </span>
                                             )}
 
                                             <button className="review-card__menu-btn">
@@ -309,6 +380,52 @@ const Dashboard = () => {
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* AI Response Section */}
+                                    {review.aiResponse && (
+                                        <motion.div
+                                            className="ai-response"
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            transition={{ duration: 0.3 }}
+                                        >
+                                            <div className="ai-response__header">
+                                                <div className="ai-response__icon">
+                                                    <Bot size={16} />
+                                                </div>
+                                                <span className="ai-response__label">AI Generated Response</span>
+                                                <span className="ai-response__timestamp">
+                                                    {formatDate(review.aiResponse.generatedAt)}
+                                                </span>
+                                            </div>
+
+                                            <div className="ai-response__content">
+                                                <textarea
+                                                    className="ai-response__text"
+                                                    value={review.aiResponse.text}
+                                                    onChange={(e) => editResponse(review.id, e.target.value)}
+                                                    rows={3}
+                                                />
+                                            </div>
+
+                                            <div className="ai-response__actions">
+                                                <button
+                                                    className="ai-response__regenerate-btn"
+                                                    onClick={() => generateAIResponse(review.id)}
+                                                    disabled={loadingResponses[review.id]}
+                                                >
+                                                    Regenerate
+                                                </button>
+                                                <button
+                                                    className="ai-response__publish-btn"
+                                                    onClick={() => publishResponse(review.id)}
+                                                >
+                                                    <Send size={14} />
+                                                    Publish Response
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    )}
                                 </motion.div>
                             ))}
                         </div>

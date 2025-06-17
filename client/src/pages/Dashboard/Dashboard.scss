@@ -99,7 +99,7 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 // Stat Card Block
 .stat-card {
   background: $white;
-  border: 1px solid $gray-200;
+  border: 3px solid $gray-200;
   border-radius: $border-radius-lg;
   padding: 24px;
   display: flex;
@@ -348,6 +348,7 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
   &__star {
     transition: color 0.2s ease;
+    margin-top: 6px;
 
     &--filled {
       color: #fbbf24;
@@ -534,6 +535,215 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
     &__actions {
       justify-content: flex-end;
+    }
+  }
+}
+
+// AI Response Block - Add this to your Dashboard.scss file after the review-card block
+
+.ai-response {
+  margin-top: 16px;
+  border-top: 1px solid $gray-200;
+  padding-top: 16px;
+  background-color: $gray-50;
+  border-radius: $border-radius;
+  padding: 16px;
+  border: 1px solid $gray-200;
+  transition: all 0.2s ease;
+
+  // Header Element
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    color: $gray-500;
+    font-size: 0.875rem;
+  }
+
+  // Icon Element
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background-color: rgba($primary-color, 0.1);
+    color: $primary-color;
+    border-radius: $border-radius;
+    flex-shrink: 0;
+  }
+
+  // Label Element
+  &__label {
+    font-weight: 500;
+    color: $gray-700;
+    flex: 1;
+  }
+
+  // Timestamp Element
+  &__timestamp {
+    font-size: 0.75rem;
+    color: $gray-500;
+    font-weight: 500;
+  }
+
+  // Content Element
+  &__content {
+    margin-bottom: 12px;
+  }
+
+  // Text Element (textarea)
+  &__text {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid $gray-300;
+    border-radius: $border-radius;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    resize: vertical;
+    background-color: $white;
+    font-family: inherit;
+    color: $gray-700;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+
+    &:focus {
+      outline: none;
+      border-color: $primary-color;
+      box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+    }
+
+    &::placeholder {
+      color: $gray-500;
+    }
+  }
+
+  // Actions Element
+  &__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  // Regenerate Button Element
+  &__regenerate-btn {
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: $gray-600;
+    background-color: $white;
+    border: 1px solid $gray-300;
+    border-radius: $border-radius;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background-color: $gray-50;
+      border-color: $gray-500;
+      color: $gray-700;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $white;
+        border-color: $gray-300;
+        color: $gray-600;
+      }
+    }
+  }
+
+  // Publish Button Element
+  &__publish-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: $white;
+    background-color: $success-color;
+    border: none;
+    border-radius: $border-radius;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      background-color: #15803d;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $success-color;
+      }
+    }
+  }
+}
+
+// Update to existing review-card block - add these modifiers to the existing &__respond-btn and &__status selectors
+
+// Add this to the existing &__respond-btn in review-card block
+.review-card {
+  &__respond-btn {
+    // ... existing styles remain ...
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+
+      &:hover {
+        background-color: $primary-color;
+      }
+    }
+  }
+
+  // Update the existing &__status selector to include new modifiers
+  &__status {
+    // ... existing styles remain ...
+
+    &--responded {
+      background-color: rgba($success-color, 0.1);
+      color: $success-color;
+    }
+  }
+}
+
+// Responsive Design for AI Response
+@media (max-width: 768px) {
+  .ai-response {
+    padding: 12px;
+    margin-top: 12px;
+
+    &__header {
+      font-size: 0.75rem;
+      margin-bottom: 8px;
+    }
+
+    &__icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    &__text {
+      font-size: 0.75rem;
+      padding: 10px;
+    }
+
+    &__actions {
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    &__regenerate-btn,
+    &__publish-btn {
+      justify-content: center;
+      width: 100%;
     }
   }
 }
