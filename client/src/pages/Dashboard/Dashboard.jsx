@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Star,
     Users,
@@ -11,7 +11,10 @@ import {
     Bot,
     Send,
     CheckCircle,
-    ThumbsUp
+    ThumbsUp,
+    Edit3,
+    Save,
+    X
 } from 'lucide-react';
 import './Dashboard.scss';
 
@@ -19,7 +22,15 @@ const Dashboard = () => {
     const [reviews, setReviews] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loadingResponses, setLoadingResponses] = useState({});
-    const [loadingResponseApprovals, setLoadingResponseApprovals] = useState({}); // Track response approval loading
+    const [loadingResponseApprovals, setLoadingResponseApprovals] = useState({});
+    const [openMenuId, setOpenMenuId] = useState(null);
+    const [editingPersona, setEditingPersona] = useState(null);
+    const [personaForm, setPersonaForm] = useState({
+        traits: ['', '', ''],
+        personality: ['', ''],
+        communicationStyle: ['', '']
+    });
+    const [savingPersona, setSavingPersona] = useState(false);
     const [stats, setStats] = useState({
         totalReviews: 0,
         averageRating: 0,
@@ -27,8 +38,25 @@ const Dashboard = () => {
         totalRewards: 0
     });
 
+    const menuRef = useRef(null);
+
     useEffect(() => {
         fetchDashboardData();
+    }, []);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (menuRef.current && !menuRef.current.contains(event.target)) {
+                setOpenMenuId(null);
+                setEditingPersona(null);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
     }, []);
 
     const fetchDashboardData = async () => {
@@ -51,6 +79,7 @@ const Dashboard = () => {
                     id: review.id,
                     customerName: review.customerName,
                     technicianName: review.technicianName,
+                    technicianCrmCode: review.technicianCrmCode,
                     rating: review.rating,
                     text: review.text,
                     date: review.date,
@@ -61,7 +90,7 @@ const Dashboard = () => {
                     published: review.published,
                     publishedAt: review.publishedAt,
                     // Add response approval fields
-                    responseApprovalStatus: review.responseApprovalStatus || 'pending', // 'pending', 'approved'
+                    responseApprovalStatus: review.responseApprovalStatus || 'pending',
                     responseApprovedBy: review.responseApprovedBy || null,
                     responseApprovedAt: review.responseApprovedAt || null,
                     // Add AI response if it exists
@@ -75,6 +104,102 @@ const Dashboard = () => {
             }
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
+        }
+    };
+
+    const fetchTechnicianPersona = async (crmCode) => {
+        try {
+            const response = await fetch(`http://localhost:8000/api/technicians/crm/${crmCode}`);
+            const result = await response.json();
+
+            if (result.success && result.data.persona) {
+                const persona = result.data.persona;
+                return {
+                    traits: Array.isArray(persona.traits) ? persona.traits : [persona.traits || '', '', ''],
+                    personality: typeof persona.personality === 'string'
+                        ? persona.personality.split(' and ')
+                        : [persona.personality || '', ''],
+                    communicationStyle: typeof persona.communicationStyle === 'string'
+                        ? persona.communicationStyle.split(' and ')
+                        : [persona.communicationStyle || '', '']
+                };
+            }
+            return {
+                traits: ['', '', ''],
+                personality: ['', ''],
+                communicationStyle: ['', '']
+            };
+        } catch (error) {
+            console.error('Error fetching technician persona:', error);
+            return {
+                traits: ['', '', ''],
+                personality: ['', ''],
+                communicationStyle: ['', '']
+            };
+        }
+    };
+
+    const handleMenuClick = async (reviewId, crmCode) => {
+        if (openMenuId === reviewId) {
+            setOpenMenuId(null);
+            setEditingPersona(null);
+        } else {
+            setOpenMenuId(reviewId);
+            if (crmCode) {
+                const persona = await fetchTechnicianPersona(crmCode);
+                setPersonaForm(persona);
+            }
+        }
+    };
+
+    const handleEditPersona = (reviewId) => {
+        setEditingPersona(reviewId);
+    };
+
+    const handlePersonaInputChange = (field, index, value) => {
+        setPersonaForm(prev => ({
+            ...prev,
+            [field]: prev[field].map((item, i) => i === index ? value : item)
+        }));
+    };
+
+    const handleSavePersona = async (crmCode) => {
+        if (!crmCode) {
+            alert('Cannot update persona: Technician CRM code not found');
+            return;
+        }
+
+        try {
+            setSavingPersona(true);
+
+            const response = await fetch(`http://localhost:8000/api/technicians/crm/${crmCode}/persona`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    persona: {
+                        traits: personaForm.traits.filter(trait => trait.trim() !== ''),
+                        personality: personaForm.personality.filter(p => p.trim() !== '').join(' and '),
+                        communicationStyle: personaForm.communicationStyle.filter(cs => cs.trim() !== '').join(' and ')
+                    }
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                alert(`Persona updated successfully for ${result.data.name} (${crmCode})!`);
+                setEditingPersona(null);
+                setOpenMenuId(null);
+                await fetchDashboardData();
+            } else {
+                alert(`Error: ${result.message}`);
+            }
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+        } finally {
+            setSavingPersona(false);
         }
     };
 
@@ -106,21 +231,15 @@ const Dashboard = () => {
             .toUpperCase();
     };
 
-    // Helper function to determine if a review is negative
     const isNegativeReview = (review) => {
         return review.rating <= 2 || review.sentiment === 'negative';
     };
 
-    // Helper function to check if response can be published
     const canPublishResponse = (review) => {
         if (!review.aiResponse) return false;
-
-        // If it's a negative review, check response approval status
         if (isNegativeReview(review)) {
             return review.responseApprovalStatus === 'approved';
         }
-
-        // Positive reviews can be published directly
         return true;
     };
 
@@ -156,7 +275,6 @@ const Dashboard = () => {
         }
     };
 
-    // Approve AI-generated response
     const approveResponse = async (reviewId) => {
         try {
             setLoadingResponseApprovals(prev => ({ ...prev, [reviewId]: true }));
@@ -226,7 +344,6 @@ const Dashboard = () => {
     };
 
     const renderReviewActions = (review) => {
-        // If review has AI response already
         if (review.aiResponse) {
             return (
                 <span className="review-card__status review-card__status--responded">
@@ -235,7 +352,6 @@ const Dashboard = () => {
             );
         }
 
-        // All reviews (positive and negative) can generate AI response directly
         return (
             <button
                 className="review-card__respond-btn"
@@ -247,7 +363,6 @@ const Dashboard = () => {
         );
     };
 
-    // Render AI response actions with simplified approval workflow
     const renderAIResponseActions = (review) => {
         const isNegative = isNegativeReview(review);
         const needsApproval = isNegative && review.responseApprovalStatus === 'pending';
@@ -263,7 +378,6 @@ const Dashboard = () => {
                     Regenerate
                 </button>
 
-                {/* Show approval button for negative reviews that need approval */}
                 {needsApproval && (
                     <button
                         className="ai-response__approve-btn"
@@ -275,7 +389,6 @@ const Dashboard = () => {
                     </button>
                 )}
 
-                {/* Show approval status for negative reviews that are approved */}
                 {isNegative && isApproved && (
                     <span className="ai-response__approval-status ai-response__approval-status--approved">
                         <CheckCircle size={14} />
@@ -283,7 +396,6 @@ const Dashboard = () => {
                     </span>
                 )}
 
-                {/* Publish button - only show if response can be published */}
                 {canPublishResponse(review) && (
                     <button
                         className="ai-response__publish-btn"
@@ -293,6 +405,91 @@ const Dashboard = () => {
                         Publish Response
                     </button>
                 )}
+            </div>
+        );
+    };
+
+    const renderPersonaMenu = (review) => {
+
+        if (editingPersona === review.id) {
+            return (
+                <div className="persona-edit-form">
+                    <div className="persona-edit-form__header">
+                        <h4>Edit {review.technicianName}'s Persona</h4>
+                        <button
+                            className="persona-edit-form__close"
+                            onClick={() => setEditingPersona(null)}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+
+                    <div className="persona-edit-form__section">
+                        <label className="persona-edit-form__label">Traits</label>
+                        {personaForm.traits.map((trait, index) => (
+                            <input
+                                key={index}
+                                type="text"
+                                className="persona-edit-form__input"
+                                placeholder={`Trait ${index + 1}`}
+                                value={trait}
+                                onChange={(e) => handlePersonaInputChange('traits', index, e.target.value)}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="persona-edit-form__section">
+                        <label className="persona-edit-form__label">Personality</label>
+                        {personaForm.personality.map((personality, index) => (
+                            <input
+                                key={index}
+                                type="text"
+                                className="persona-edit-form__input"
+                                placeholder={`Personality ${index + 1}`}
+                                value={personality}
+                                onChange={(e) => handlePersonaInputChange('personality', index, e.target.value)}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="persona-edit-form__section">
+                        <label className="persona-edit-form__label">Communication Style</label>
+                        {personaForm.communicationStyle.map((style, index) => (
+                            <input
+                                key={index}
+                                type="text"
+                                className="persona-edit-form__input"
+                                placeholder={`Communication Style ${index + 1}`}
+                                value={style}
+                                onChange={(e) => handlePersonaInputChange('communicationStyle', index, e.target.value)}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="persona-edit-form__actions">
+                        <button
+                            className="persona-edit-form__save-btn"
+                            onClick={() => handleSavePersona(review.technicianCrmCode)}
+                            disabled={savingPersona}
+                        >
+                            <Save size={14} />
+                            {savingPersona ? 'Saving...' : 'Save Persona'}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="dropdown-menu">
+                <button
+                    className="dropdown-menu__item"
+                    onClick={() => handleEditPersona(review.id)}
+                    disabled={!review.technicianCrmCode || review.technicianName === 'Unknown'}
+                >
+                    <Edit3 size={14} />
+                    Edit Persona {review.technicianCrmCode && `(${review.technicianCrmCode})`}
+                </button>
             </div>
         );
     };
@@ -315,12 +512,7 @@ const Dashboard = () => {
 
             {/* Stats Cards */}
             <div className="dashboard__stats">
-                <motion.div
-                    className="stat-card"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                >
+                <motion.div className="stat-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
                     <div className="stat-card__icon stat-card__icon--reviews">
                         <MessageSquare size={24} />
                     </div>
@@ -330,12 +522,7 @@ const Dashboard = () => {
                     </div>
                 </motion.div>
 
-                <motion.div
-                    className="stat-card"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                >
+                <motion.div className="stat-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
                     <div className="stat-card__icon stat-card__icon--rating">
                         <Star size={24} />
                     </div>
@@ -345,12 +532,7 @@ const Dashboard = () => {
                     </div>
                 </motion.div>
 
-                <motion.div
-                    className="stat-card"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                >
+                <motion.div className="stat-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
                     <div className="stat-card__icon stat-card__icon--technicians">
                         <Users size={24} />
                     </div>
@@ -360,12 +542,7 @@ const Dashboard = () => {
                     </div>
                 </motion.div>
 
-                <motion.div
-                    className="stat-card"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                >
+                <motion.div className="stat-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
                     <div className="stat-card__icon stat-card__icon--rewards">
                         <DollarSign size={24} />
                     </div>
@@ -459,9 +636,28 @@ const Dashboard = () => {
                                         <div className="review-card__actions">
                                             {renderReviewActions(review)}
 
-                                            <button className="review-card__menu-btn">
-                                                <MoreVertical size={16} />
-                                            </button>
+                                            <div className="menu-container" ref={openMenuId === review.id ? menuRef : null}>
+                                                <button
+                                                    className="review-card__menu-btn"
+                                                    onClick={() => handleMenuClick(review.id, review.technicianCrmCode)}
+                                                >
+                                                    <MoreVertical size={16} />
+                                                </button>
+
+                                                <AnimatePresence>
+                                                    {openMenuId === review.id && (
+                                                        <motion.div
+                                                            className="menu-dropdown"
+                                                            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                            transition={{ duration: 0.15 }}
+                                                        >
+                                                            {renderPersonaMenu(review)}
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -487,12 +683,34 @@ const Dashboard = () => {
                                                 <textarea
                                                     className="ai-response__text"
                                                     value={review.aiResponse.text}
-                                                    onChange={(e) => editResponse(review.id, e.target.value)}
-                                                    rows={3}
+                                                    onChange={(e) => {
+                                                        // Auto-resize logic
+                                                        e.target.style.height = 'auto';
+                                                        e.target.style.height = `${e.target.scrollHeight}px`;
+
+                                                        // Update the state
+                                                        editResponse(review.id, e.target.value);
+                                                    }}
+                                                    onLoad={(e) => {
+                                                        // Auto-resize on load
+                                                        e.target.style.height = 'auto';
+                                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                                    }}
+                                                    style={{
+                                                        minHeight: '60px',
+                                                        resize: 'none',
+                                                        overflow: 'hidden',
+                                                        width: '100%',
+                                                        padding: '12px',
+                                                        border: '1px solid #e1e5e9',
+                                                        borderRadius: '8px',
+                                                        fontFamily: 'inherit',
+                                                        fontSize: '14px',
+                                                        lineHeight: '1.5'
+                                                    }}
                                                 />
                                             </div>
 
-                                            {/* Simplified AI Response Actions */}
                                             {renderAIResponseActions(review)}
                                         </motion.div>
                                     )}

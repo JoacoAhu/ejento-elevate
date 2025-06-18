@@ -25,7 +25,7 @@ const sequelize = new Sequelize(
                 rejectUnauthorized: false
             }
         },
-        logging: false, // Set to console.log to see SQL queries
+        logging: false,
         pool: {
             max: 10,
             min: 0,
@@ -345,8 +345,6 @@ app.post('/api/reviews/:id/approve', async (req, res) => {
             responseApprovedAt: new Date()
         });
 
-        console.log(`✅ Review ${reviewId} ${approvalStatus} by ${approvedBy}`);
-
         res.json({
             success: true,
             message: `Review ${approvalStatus} successfully`,
@@ -393,7 +391,7 @@ app.get('/api/reviews', async (req, res) => {
                 {
                     model: Technician,
                     as: 'technician',
-                    attributes: ['id', 'name', 'email', 'persona']
+                    attributes: ['id', 'name', 'email', 'persona', 'crmCode']
                 },
                 {
                     model: Client,
@@ -409,6 +407,7 @@ app.get('/api/reviews', async (req, res) => {
             id: review.id,
             customerName: review.customerName,
             technicianName: review.technician ? review.technician.name : 'Unknown',
+            technicianCrmCode: review.technician ? review.technician.crmCode : null,
             rating: review.rating,
             text: review.text,
             date: review.reviewDate,
@@ -427,13 +426,6 @@ app.get('/api/reviews', async (req, res) => {
             responseApprovedAt: review.responseApprovedAt
         }));
 
-        console.log('Sending reviews with response approval status:', formattedReviews.map(r => ({
-            id: r.id,
-            customerName: r.customerName,
-            responseApprovalStatus: r.responseApprovalStatus,
-            hasResponse: !!r.responseText
-        })));
-
         res.json({
             success: true,
             data: formattedReviews,
@@ -448,6 +440,109 @@ app.get('/api/reviews', async (req, res) => {
         });
     }
 });
+
+async function findTechnicianByCrmCode(crmCode) {
+    return await Technician.findOne({
+        where: { crmCode: crmCode, isActive: true },
+        include: [
+            {
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name']
+            }
+        ]
+    });
+}
+
+// Get single technician with persona
+app.get('/api/technicians/crm/:crmCode', async (req, res) => {
+    try {
+        const crmCode = req.params.crmCode;
+
+        const technician = await findTechnicianByCrmCode(crmCode);
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: `Technician with CRM code ${crmCode} not found`
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                id: technician.id,
+                name: technician.name,
+                email: technician.email,
+                crmCode: technician.crmCode,
+                persona: technician.persona,
+                isActive: technician.isActive,
+                client: technician.client
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching technician by CRM code:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch technician',
+            error: error.message
+        });
+    }
+});
+
+// Update technician persona
+app.put('/api/technicians/crm/:crmCode/persona', async (req, res) => {
+    try {
+        const crmCode = req.params.crmCode;
+        const { persona } = req.body;
+
+        // Validate persona structure
+        if (!persona || typeof persona !== 'object') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid persona data'
+            });
+        }
+
+        const technician = await findTechnicianByCrmCode(crmCode);
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: `Technician with CRM code ${crmCode} not found`
+            });
+        }
+
+        // Update the technician's persona
+        await technician.update({
+            persona: {
+                traits: persona.traits || [],
+                personality: persona.personality || '',
+                communicationStyle: persona.communicationStyle || ''
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Persona updated successfully',
+            data: {
+                crmCode: crmCode,
+                name: technician.name,
+                persona: technician.persona
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating technician persona:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update persona',
+            error: error.message
+        });
+    }
+});
+
 
 // Get dashboard stats
 app.get('/api/dashboard/stats', async (req, res) => {
@@ -504,7 +599,6 @@ app.post('/api/reviews/:id/generate-response', async (req, res) => {
         }
 
         // Generate AI response
-        console.log(`Generating AI response for review ${reviewId}...`);
         const aiResult = await openaiService.generateReviewResponse(
             {
                 customerName: review.customerName,
@@ -604,8 +698,6 @@ app.post('/api/reviews/:id/approve-response', async (req, res) => {
             responseApprovedAt: new Date()
         });
 
-        console.log(`✅ Review ${reviewId} response approved by ${approvedBy}`);
-
         res.json({
             success: true,
             message: 'Response approved successfully',
@@ -666,8 +758,6 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
                 responseApprovalStatus: review.responseApprovalStatus
             });
         }
-
-        console.log(`Publishing response for review ${reviewId} to ${review.source}...`);
 
         // Simulate API delay (remove this in production)
         await new Promise(resolve => setTimeout(resolve, 1000));
