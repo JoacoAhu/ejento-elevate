@@ -857,7 +857,6 @@ app.post('/api/reviews', async (req, res) => {
     try {
         const { customerName, rating, text, technicianId } = req.body;
 
-        // Get the first client (or create logic to determine client)
         const client = await Client.findOne();
 
         const review = await Review.create({
@@ -881,6 +880,77 @@ app.post('/api/reviews', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to create review',
+            error: error.message
+        });
+    }
+});
+
+app.get('/api/dashboard/top-technicians', async (req, res) => {
+    try {
+        const technicians = await Technician.findAll({
+            where: { isActive: true },
+            include: [
+                {
+                    model: Review,
+                    as: 'reviews',
+                    required: false,
+                    attributes: ['id', 'rating', 'sentiment']
+                },
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        const technicianStats = technicians.map(technician => {
+            const reviews = technician.reviews || [];
+
+            const positiveReviews = reviews.filter(review => review.rating >= 4).length;
+
+            const totalReviews = reviews.length;
+
+            const avgRating = totalReviews > 0
+                ? (reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews).toFixed(1)
+                : 0;
+
+            const totalRewards = positiveReviews * 5;
+
+            return {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                positiveReviews: positiveReviews,
+                totalReviews: totalReviews,
+                averageRating: parseFloat(avgRating),
+                totalRewards: totalRewards,
+                performanceScore: (positiveReviews * 0.7) + (parseFloat(avgRating) * 0.3)
+            };
+        });
+
+        const topTechnicians = technicianStats
+            .filter(tech => tech.totalReviews > 0)
+            .sort((a, b) => {
+                if (b.positiveReviews !== a.positiveReviews) {
+                    return b.positiveReviews - a.positiveReviews;
+                }
+                return b.averageRating - a.averageRating;
+            })
+            .slice(0, 5);
+
+        res.json({
+            success: true,
+            data: topTechnicians,
+            total: topTechnicians.length
+        });
+
+    } catch (error) {
+        console.error('Error fetching top technicians:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch top technicians',
             error: error.message
         });
     }

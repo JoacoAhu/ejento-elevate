@@ -14,7 +14,10 @@ import {
     ThumbsUp,
     Edit3,
     Save,
-    X
+    X,
+    Trophy,
+    Award,
+    TrendingUp
 } from 'lucide-react';
 import './Dashboard.scss';
 
@@ -37,6 +40,7 @@ const Dashboard = () => {
         activeTechnicians: 0,
         totalRewards: 0
     });
+    const [topTechnicians, setTopTechnicians] = useState([]); // Add this new state
 
     const menuRef = useRef(null);
 
@@ -67,6 +71,14 @@ const Dashboard = () => {
 
             if (statsResult.success) {
                 setStats(statsResult.data);
+            }
+
+            // Fetch top technicians
+            const topTechResponse = await fetch('http://localhost:8000/api/dashboard/top-technicians');
+            const topTechResult = await topTechResponse.json();
+
+            if (topTechResult.success) {
+                setTopTechnicians(topTechResult.data);
             }
 
             // Fetch reviews from real API
@@ -494,6 +506,66 @@ const Dashboard = () => {
         );
     };
 
+    // Render top technicians section
+    const renderTopTechnicians = () => {
+        if (topTechnicians.length === 0) {
+            return (
+                <div className="top-technicians__empty">
+                    <Trophy size={48} className="top-technicians__empty-icon" />
+                    <p>No technician performance data available yet.</p>
+                </div>
+            );
+        }
+
+        return (
+            <div className="top-technicians__list">
+                {topTechnicians.map((tech, index) => (
+                    <motion.div
+                        key={tech.id}
+                        className={`top-tech-card ${index === 0 ? 'top-tech-card--first' : ''}`}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                    >
+                        <div className="top-tech-card__rank">
+                            {index === 0 && <Trophy size={20} className="top-tech-card__trophy" />}
+                            <span className="top-tech-card__rank-number">#{index + 1}</span>
+                        </div>
+
+                        <div className="top-tech-card__avatar">
+                            {getInitials(tech.name)}
+                        </div>
+
+                        <div className="top-tech-card__info">
+                            <div className="top-tech-card__name">{tech.name}</div>
+                            <div className="top-tech-card__code">{tech.crmCode}</div>
+                        </div>
+
+                        <div className="top-tech-card__stats">
+                            <div className="top-tech-card__stat">
+                                <Star size={16} className="top-tech-card__stat-icon" />
+                                <span className="top-tech-card__stat-value">{tech.averageRating}</span>
+                                <span className="top-tech-card__stat-label">Avg Rating</span>
+                            </div>
+
+                            <div className="top-tech-card__stat">
+                                <ThumbsUp size={16} className="top-tech-card__stat-icon" />
+                                <span className="top-tech-card__stat-value">{tech.positiveReviews}</span>
+                                <span className="top-tech-card__stat-label">Positive Reviews</span>
+                            </div>
+
+                            <div className="top-tech-card__stat">
+                                <DollarSign size={16} className="top-tech-card__stat-icon" />
+                                <span className="top-tech-card__stat-value">${tech.totalRewards}</span>
+                                <span className="top-tech-card__stat-label">Rewards</span>
+                            </div>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+        );
+    };
+
     return (
         <div className="dashboard">
             {/* Header Section */}
@@ -552,6 +624,34 @@ const Dashboard = () => {
                     </div>
                 </motion.div>
             </div>
+
+            {/* Top Technicians Section */}
+            <motion.div
+                className="top-technicians"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+            >
+                <div className="top-technicians__header">
+                    <div className="top-technicians__title-section">
+                        <div className="top-technicians__icon">
+                            <Award size={24} />
+                        </div>
+                        <div>
+                            <h2 className="top-technicians__title">Top Performers</h2>
+                            <p className="top-technicians__subtitle">Ranked by positive reviews and customer satisfaction</p>
+                        </div>
+                    </div>
+                    <div className="top-technicians__badge">
+                        <TrendingUp size={16} />
+                        <span>This Month</span>
+                    </div>
+                </div>
+
+                <div className="top-technicians__content">
+                    {renderTopTechnicians()}
+                </div>
+            </motion.div>
 
             {/* Reviews Section */}
             <div className="dashboard__reviews">

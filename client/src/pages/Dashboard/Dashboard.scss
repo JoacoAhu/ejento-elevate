@@ -1171,3 +1171,305 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     }
   }
 }
+
+/* Top Technicians Section */
+.top-technicians {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin: 24px 0;
+  overflow: hidden;
+}
+
+.top-technicians__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.top-technicians__title-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-technicians__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border-radius: 10px;
+  color: white;
+}
+
+.top-technicians__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.top-technicians__subtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+}
+
+.top-technicians__badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.top-technicians__content {
+  padding: 24px;
+}
+
+/* Top Technicians List */
+.top-technicians__list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Individual Technician Cards */
+.top-tech-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.top-tech-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #cbd5e1;
+}
+
+.top-tech-card--first {
+  background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%);
+  border-color: #fbbf24;
+  position: relative;
+}
+
+.top-tech-card--first::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+/* Rank Section */
+.top-tech-card__rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 48px;
+}
+
+.top-tech-card__trophy {
+  color: #f59e0b;
+}
+
+.top-tech-card__rank-number {
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Avatar */
+.top-tech-card__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 16px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.top-tech-card--first .top-tech-card__avatar {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+/* Info Section */
+.top-tech-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.top-tech-card__name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+
+.top-tech-card__code {
+  font-size: 12px;
+  color: #64748b;
+  font-family: 'Monaco', 'Courier New', monospace;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.top-tech-card--first .top-tech-card__code {
+  background: #fbbf24;
+  color: #92400e;
+}
+
+/* Stats Section */
+.top-tech-card__stats {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.top-tech-card__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 64px;
+}
+
+.top-tech-card__stat-icon {
+  color: #64748b;
+}
+
+.top-tech-card--first .top-tech-card__stat-icon {
+  color: #d97706;
+}
+
+.top-tech-card__stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.top-tech-card__stat-label {
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Empty State */
+.top-technicians__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.top-technicians__empty-icon {
+  color: #cbd5e1;
+  margin-bottom: 16px;
+}
+
+.top-technicians__empty p {
+  color: #64748b;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .top-technicians__header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 16px 20px;
+  }
+
+  .top-technicians__content {
+    padding: 16px 20px;
+  }
+
+  .top-tech-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .top-tech-card__stats {
+    flex-direction: row;
+    justify-content: space-around;
+    width: 100%;
+    gap: 16px;
+  }
+
+  .top-tech-card__rank {
+    order: -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-tech-card__stats {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .top-tech-card__stat {
+    flex-direction: row;
+    gap: 8px;
+    min-width: auto;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .top-tech-card__stat-value {
+    font-size: 14px;
+  }
+
+  .top-tech-card__stat-label {
+    font-size: 12px;
+  }
+}
+
+/* Animation for trophy */
+@keyframes trophy-glow {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.2);
+  }
+}
+
+.top-tech-card--first .top-tech-card__trophy {
+  animation: trophy-glow 2s ease-in-out infinite;
+}
