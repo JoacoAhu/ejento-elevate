@@ -201,7 +201,7 @@ async function initializeDatabase() {
 }
 
 // Create sample data
-async function createSampleData() {
+/* async function createSampleData() {
     try {
         console.log('🌱 Creating sample data...');
 
@@ -290,7 +290,7 @@ async function createSampleData() {
     } catch (error) {
         console.error('❌ Error creating sample data:', error);
     }
-}
+} */
 
 // Health check
 app.get('/health', async (req, res) => {
