@@ -780,35 +780,24 @@ const Dashboard = () => {
                                             </div>
 
                                             <div className="ai-response__content">
-                                                <textarea
-                                                    className="ai-response__text"
-                                                    value={review.aiResponse.text}
-                                                    onChange={(e) => {
-                                                        // Auto-resize logic
-                                                        e.target.style.height = 'auto';
-                                                        e.target.style.height = `${e.target.scrollHeight}px`;
-
-                                                        // Update the state
-                                                        editResponse(review.id, e.target.value);
-                                                    }}
-                                                    onLoad={(e) => {
-                                                        // Auto-resize on load
-                                                        e.target.style.height = 'auto';
-                                                        e.target.style.height = `${e.target.scrollHeight}px`;
-                                                    }}
-                                                    style={{
-                                                        minHeight: '60px',
-                                                        resize: 'none',
-                                                        overflow: 'hidden',
-                                                        width: '100%',
-                                                        padding: '12px',
-                                                        border: '1px solid #e1e5e9',
-                                                        borderRadius: '8px',
-                                                        fontFamily: 'inherit',
-                                                        fontSize: '14px',
-                                                        lineHeight: '1.5'
-                                                    }}
-                                                />
+                                              <textarea
+                                                  className="ai-response__text"
+                                                  value={review.aiResponse.text}
+                                                  onChange={(e) => editResponse(review.id, e.target.value)}
+                                                  style={{
+                                                      height: '120px',
+                                                      resize: 'none',
+                                                      overflowY: 'scroll', // Always show vertical scrollbar
+                                                      overflowX: 'hidden', // Hide horizontal scrollbar
+                                                      width: '100%',
+                                                      padding: '12px',
+                                                      border: '1px solid #e1e5e9',
+                                                      borderRadius: '8px',
+                                                      fontFamily: 'inherit',
+                                                      fontSize: '14px',
+                                                      lineHeight: '1.5'
+                                                  }}
+                                              />
                                             </div>
 
                                             {renderAIResponseActions(review)}

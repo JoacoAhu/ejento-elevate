@@ -271,10 +271,19 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
 /* Auto-resizing textarea */
 .ai-response__text {
-  min-height: 60px;
-  resize: none !important;
-  overflow: hidden !important;
-  transition: height 0.1s ease;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid $gray-300;
+  border-radius: $border-radius;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: none;
+  background-color: $white;
+  font-family: inherit;
+  color: $gray-700;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+  min-height: 200px;
 
   &:focus {
     outline: none;
