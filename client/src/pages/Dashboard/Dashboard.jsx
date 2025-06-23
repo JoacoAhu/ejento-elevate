@@ -436,6 +436,17 @@ const Dashboard = () => {
                         </button>
                     </div>
 
+                    <div className="persona-edit-form__header">
+                        <button
+                            className="persona-edit-form__close"
+                            onClick={() => setEditingPersona(null)}
+                        >
+                            <a href="/admin/prompts" className="nav-link">
+                                Prompt Management
+                            </a>
+                        </button>
+                    </div>
+
                     <div className="persona-edit-form__section">
                         <label className="persona-edit-form__label">Traits</label>
                         {personaForm.traits.map((trait, index) => (

@@ -4,6 +4,10 @@ const helmet = require('helmet');
 const { Sequelize, DataTypes, Op } = require('sequelize');
 require('dotenv').config();
 
+// Import models from the models directory
+const db = require('./models');
+const { Client, Technician, Review, Prompt } = db;
+
 // Import OpenAI service
 const openaiService = require('./services/openaiService');
 
@@ -11,165 +15,8 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 // Database connection
-const sequelize = new Sequelize(
-    process.env.DB_NAME,
-    process.env.DB_USERNAME,
-    process.env.DB_PASSWORD,
-    {
-        host: process.env.DB_HOST,
-        port: process.env.DB_PORT || 3306,
-        dialect: 'mysql',
-        dialectOptions: {
-            ssl: {
-                require: true,
-                rejectUnauthorized: false
-            }
-        },
-        logging: false,
-        pool: {
-            max: 10,
-            min: 0,
-            acquire: 30000,
-            idle: 10000
-        }
-    }
-);
+const sequelize = db.sequelize;
 
-// Define Models
-const Client = sequelize.define('Client', {
-    id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true
-    },
-    name: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    email: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    googleAccountId: DataTypes.STRING,
-    googleBusinessProfileId: DataTypes.STRING,
-    isActive: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
-    }
-});
-
-const Technician = sequelize.define('Technician', {
-    id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true
-    },
-    clientId: {
-        type: DataTypes.INTEGER,
-        allowNull: false
-    },
-    name: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    email: DataTypes.STRING,
-    crmCode: DataTypes.STRING,
-    persona: {
-        type: DataTypes.JSON,
-        defaultValue: {
-            communicationStyle: 'professional and friendly',
-            personality: 'customer-focused and reliable',
-            traits: ['professional', 'helpful', 'thorough']
-        }
-    },
-    isActive: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
-    }
-});
-
-// UPDATED Review model with publishing fields
-const Review = sequelize.define('Review', {
-    id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true
-    },
-    clientId: {
-        type: DataTypes.INTEGER,
-        allowNull: false
-    },
-    technicianId: DataTypes.INTEGER,
-    googleReviewId: DataTypes.STRING,
-    customerName: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    rating: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        validate: {
-            min: 1,
-            max: 5
-        }
-    },
-    text: {
-        type: DataTypes.TEXT,
-        allowNull: false
-    },
-    sentiment: DataTypes.STRING,
-    sentimentScore: DataTypes.FLOAT,
-    reviewDate: {
-        type: DataTypes.DATE,
-        allowNull: false
-    },
-    responseText: DataTypes.TEXT,
-    responseDate: DataTypes.DATE,
-    status: {
-        type: DataTypes.STRING,
-        defaultValue: 'pending'
-    },
-    source: {
-        type: DataTypes.STRING,
-        defaultValue: 'google'
-    },
-    // ADDED PUBLISHING FIELDS
-    publishedAt: {
-        type: DataTypes.DATE,
-        allowNull: true
-    },
-    publishedBy: {
-        type: DataTypes.STRING,
-        allowNull: true,
-        defaultValue: 'system'
-    },
-    publishedPlatform: {
-        type: DataTypes.STRING,
-        allowNull: true
-    },
-    responseApprovalStatus: {
-        type: DataTypes.STRING,
-        defaultValue: 'pending',
-        allowNull: false
-    },
-    responseApprovedBy: {
-        type: DataTypes.STRING,
-        allowNull: true
-    },
-    responseApprovedAt: {
-        type: DataTypes.DATE,
-        allowNull: true
-    },
-});
-
-// Define associations
-// In your main server file, update the model associations:
-Client.hasMany(Technician, { foreignKey: 'clientId', as: 'technicians' });
-Client.hasMany(Review, { foreignKey: 'clientId', as: 'reviews' });
-Technician.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
-Technician.hasMany(Review, { foreignKey: 'technicianId', as: 'reviews' });
-Review.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
-Review.belongsTo(Technician, { foreignKey: 'technicianId', as: 'technician' });
 
 // Middleware
 app.use(helmet());
@@ -195,13 +42,15 @@ async function initializeDatabase() {
             await createSampleData();
         }
 
+        await createDefaultPrompts();
+
     } catch (error) {
         console.error('❌ Unable to connect to database:', error);
     }
 }
 
-// Create sample data
-/* async function createSampleData() {
+// Create sample data function
+async function createSampleData() {
     try {
         console.log('🌱 Creating sample data...');
 
@@ -290,7 +139,7 @@ async function initializeDatabase() {
     } catch (error) {
         console.error('❌ Error creating sample data:', error);
     }
-} */
+}
 
 // Health check
 app.get('/health', async (req, res) => {
@@ -986,6 +835,368 @@ app.get('/api/reviews/published', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch published reviews',
+            error: error.message
+        });
+    }
+});
+
+async function createDefaultPrompts() {
+    try {
+        const promptCount = await Prompt.count();
+        if (promptCount === 0) {
+            console.log('🌱 Creating default prompt...');
+
+            // Create system prompt
+            await Prompt.create({
+                name: 'Default System Prompt',
+                type: 'response_generation',
+                content: `You are an AI assistant helping home service technicians respond to customer reviews. You excel at creating personalized, authentic responses that match each technician's unique communication style.
+
+CORE PRINCIPLES:
+- Write as the actual technician, not a company representative
+- Match the specified communication style and personality exactly
+- Address specific details mentioned in the review
+- Show genuine appreciation for positive feedback
+- Handle criticism with professionalism and solution-focused approach
+- Keep responses conversational and authentic (avoid corporate speak)
+- Maintain appropriate length (100-200 words)
+
+RESPONSE STRUCTURE:
+1. Personal greeting/acknowledgment
+2. Address specific points from the review
+3. Reflect the technician's personality naturally
+4. Express gratitude or address concerns
+5. Professional closing with future service invitation
+
+Remember: Each technician has a unique voice - capture that authenticity while maintaining professionalism.
+
+Generate a professional response to this customer review:
+
+REVIEW DETAILS:
+- Customer: {{customerName}}
+- Rating: {{rating}}/5 stars
+- Review: "{{reviewText}}"
+- Date: {{reviewDate}}
+- Sentiment: {{sentiment}}
+
+TECHNICIAN PERSONA:
+- Name: {{technicianName}}
+- Communication Style: {{communicationStyle}}
+- Personality: {{personality}}
+- Traits: {{traits}}
+
+RESPONSE REQUIREMENTS:
+1. Write as if you are {{technicianName}} responding personally
+2. Match the communication style: {{communicationStyle}}
+3. Address the specific points mentioned in the review
+4. Keep response under 150 words
+5. Be authentic and {{personality}}
+6. Include gratitude for the feedback
+7. {{ratingGuidance}}
+8. Invite future business if appropriate
+
+Generate only the response text, no additional formatting or explanations.`,
+                isActive: true,
+                createdBy: 'system',
+                description: 'Combined system and response generation prompt for creating review responses using technician personas'
+            });
+
+            console.log('✅ Default prompt created successfully.');
+        }
+    } catch (error) {
+        console.error('❌ Error creating default prompt:', error);
+    }
+}
+
+
+// Get all prompts
+app.get('/api/prompts', async (req, res) => {
+    try {
+        const { type } = req.query;
+        const whereClause = type ? { type } : {};
+
+        const prompts = await Prompt.findAll({
+            where: whereClause,
+            order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: prompts,
+            total: prompts.length
+        });
+    } catch (error) {
+        console.error('Error fetching prompts:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch prompts',
+            error: error.message
+        });
+    }
+});
+
+// Get active prompt by type
+app.get('/api/prompts/active/:type', async (req, res) => {
+    try {
+        const { type } = req.params;
+
+        const prompt = await Prompt.findOne({
+            where: {
+                type: type,
+                isActive: true
+            }
+        });
+
+        if (!prompt) {
+            return res.status(404).json({
+                success: false,
+                message: `No active prompt found for type: ${type}`
+            });
+        }
+
+        res.json({
+            success: true,
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error fetching active prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch active prompt',
+            error: error.message
+        });
+    }
+});
+
+// Create new prompt
+app.post('/api/prompts', async (req, res) => {
+    try {
+        const { name, type, content, description, createdBy = 'admin' } = req.body;
+
+        if (!name || !type || !content) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, type, and content are required'
+            });
+        }
+
+        // Get the next version number for this type
+        const lastPrompt = await Prompt.findOne({
+            where: { type },
+            order: [['version', 'DESC']]
+        });
+
+        const nextVersion = lastPrompt ? lastPrompt.version + 1 : 1;
+
+        const prompt = await Prompt.create({
+            name,
+            type,
+            content,
+            description,
+            version: nextVersion,
+            createdBy,
+            isActive: false // New prompts start as inactive
+        });
+
+        res.json({
+            success: true,
+            message: 'Prompt created successfully',
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error creating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create prompt',
+            error: error.message
+        });
+    }
+});
+
+// Update prompt
+app.put('/api/prompts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, content, description } = req.body;
+
+        const prompt = await Prompt.findByPk(id);
+
+        if (!prompt) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prompt not found'
+            });
+        }
+
+        await prompt.update({
+            name: name || prompt.name,
+            content: content || prompt.content,
+            description: description || prompt.description
+        });
+
+        // Clear the prompt cache when prompts are updated
+        openaiService.clearPromptCache();
+
+        res.json({
+            success: true,
+            message: 'Prompt updated successfully',
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error updating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update prompt',
+            error: error.message
+        });
+    }
+});
+// Activate prompt (deactivates others of same type)
+app.post('/api/prompts/:id/activate', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const prompt = await Prompt.findByPk(id);
+
+        if (!prompt) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prompt not found'
+            });
+        }
+
+        // Start transaction
+        await sequelize.transaction(async (t) => {
+            // Deactivate all other prompts of the same type
+            await Prompt.update(
+                { isActive: false },
+                {
+                    where: { type: prompt.type },
+                    transaction: t
+                }
+            );
+
+            // Activate this prompt
+            await prompt.update(
+                { isActive: true },
+                { transaction: t }
+            );
+        });
+
+        // Clear the prompt cache when prompts are activated
+        openaiService.clearPromptCache();
+
+        res.json({
+            success: true,
+            message: `Prompt activated successfully for type: ${prompt.type}`,
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error activating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to activate prompt',
+            error: error.message
+        });
+    }
+});
+// Testing API endpoints
+app.post('/api/testing/generate-response', async (req, res) => {
+    try {
+        const {
+            reviewData,
+            technicianData,
+            responsePrompt, // This should be the custom prompt content
+            useCustomPrompts = false
+        } = req.body;
+
+        if (!reviewData || !technicianData) {
+            return res.status(400).json({
+                success: false,
+                message: 'Review data and technician data are required'
+            });
+        }
+
+        // Use custom prompts if provided, otherwise use the service's default method
+        let result;
+
+        if (useCustomPrompts && responsePrompt) {
+            // Test with custom prompt
+            result = await openaiService.generateResponseWithCustomPrompts(
+                reviewData,
+                technicianData,
+                responsePrompt // Pass the custom prompt directly
+            );
+        } else {
+            // Use existing method with database prompts
+            result = await openaiService.generateReviewResponse(reviewData, technicianData);
+        }
+
+        if (!result.success) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to generate response',
+                error: result.error,
+                fallbackResponse: result.fallbackResponse
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                response: result.response,
+                usage: result.usage,
+                prompt: result.prompt
+            }
+        });
+    } catch (error) {
+        console.error('Error in testing endpoint:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate test response',
+            error: error.message
+        });
+    }
+});
+// Get sample reviews for testing
+app.get('/api/testing/sample-reviews', async (req, res) => {
+    try {
+        const sampleReviews = [
+            {
+                id: 'sample_1',
+                customerName: 'John Smith',
+                rating: 5,
+                text: 'Excellent service! The technician was professional and thorough.',
+                date: new Date().toISOString(),
+                sentiment: 'positive'
+            },
+            {
+                id: 'sample_2',
+                customerName: 'Sarah Johnson',
+                rating: 2,
+                text: 'The technician was 2 hours late and didn\'t explain what he was doing.',
+                date: new Date().toISOString(),
+                sentiment: 'negative'
+            },
+            {
+                id: 'sample_3',
+                customerName: 'Mike Wilson',
+                rating: 4,
+                text: 'Good service overall, but could have been more communicative about the process.',
+                date: new Date().toISOString(),
+                sentiment: 'positive'
+            }
+        ];
+
+        res.json({
+            success: true,
+            data: sampleReviews
+        });
+    } catch (error) {
+        console.error('Error fetching sample reviews:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch sample reviews',
             error: error.message
         });
     }
