@@ -1051,37 +1051,13 @@ app.put('/api/prompts/:id', async (req, res) => {
         });
     }
 });
+
 // Activate prompt (deactivates others of same type)
 app.post('/api/prompts/:id/activate', async (req, res) => {
     try {
         const { id } = req.params;
 
-        const prompt = await Prompt.findByPk(id);
-
-        if (!prompt) {
-            return res.status(404).json({
-                success: false,
-                message: 'Prompt not found'
-            });
-        }
-
-        // Start transaction
-        await sequelize.transaction(async (t) => {
-            // Deactivate all other prompts of the same type
-            await Prompt.update(
-                { isActive: false },
-                {
-                    where: { type: prompt.type },
-                    transaction: t
-                }
-            );
-
-            // Activate this prompt
-            await prompt.update(
-                { isActive: true },
-                { transaction: t }
-            );
-        });
+        const prompt = await Prompt.activatePrompt(id);
 
         // Clear the prompt cache when prompts are activated
         openaiService.clearPromptCache();
@@ -1100,6 +1076,7 @@ app.post('/api/prompts/:id/activate', async (req, res) => {
         });
     }
 });
+
 // Testing API endpoints
 app.post('/api/testing/generate-response', async (req, res) => {
     try {
@@ -1158,6 +1135,7 @@ app.post('/api/testing/generate-response', async (req, res) => {
         });
     }
 });
+
 // Get sample reviews for testing
 app.get('/api/testing/sample-reviews', async (req, res) => {
     try {

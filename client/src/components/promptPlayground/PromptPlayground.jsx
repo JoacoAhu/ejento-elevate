@@ -23,7 +23,9 @@ import {
     AlertCircle,
     CheckCircle,
     Plus,
-    Trash2
+    Trash2,
+    ArrowLeft,
+    Home
 } from 'lucide-react';
 import './PromptPlayground.scss';
 
@@ -66,6 +68,10 @@ const PromptPlayground = () => {
         content: '',
         description: ''
     });
+
+    const handleReturnToMain = () => {
+        window.location.href = '/';
+    };
 
     // Fetch prompts on component mount
     useEffect(() => {
@@ -653,8 +659,18 @@ const PromptPlayground = () => {
             <div className="prompt-playground__container">
                 {/* Header */}
                 <div className="prompt-playground__header">
-                    <h1>Prompt Playground</h1>
-                    <p>Create, edit, and test AI prompts for review responses</p>
+                    <div className="prompt-playground__header-content">  {/* ✅ Add this wrapper */}
+                        <h1>Prompt Playground</h1>
+                        <p>Create, edit, and test AI prompts for review responses</p>
+                    </div>
+                    <button
+                        onClick={handleReturnToMain}
+                        className="prompt-playground__return-btn"
+                        title="Return to Dashboard"
+                    >
+                        <ArrowLeft size={18} />
+                        <span>Back to Dashboard</span>
+                    </button>
                 </div>
 
                 {/* Tabs */}
