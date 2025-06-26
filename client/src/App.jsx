@@ -47,7 +47,7 @@ const PublicRoute = ({ children }) => {
     return children;
 };
 
-// Change Password Route (only accessible if user must change password)
+// Change Password Route
 const ChangePasswordRoute = () => {
     const { technician, loading, updateTechnician } = useAuth();
 
@@ -59,19 +59,24 @@ const ChangePasswordRoute = () => {
         return <Navigate to="/login" replace />;
     }
 
-    if (!technician.mustChangePassword) {
-        return <Navigate to="/dashboard" replace />;
-    }
-
     const handlePasswordChanged = () => {
-        // Update the technician state to reflect password change
-        updateTechnician({ mustChangePassword: false });
-        // The ProtectedRoute will automatically redirect to dashboard
+        if (technician.mustChangePassword) {
+            updateTechnician({ mustChangePassword: false });
+        }
+
+        window.location.href = '/dashboard';
+    };
+
+    const handleCancel = () => {
+        if (!technician.mustChangePassword) {
+            window.location.href = '/dashboard';
+        }
     };
 
     return (
         <ChangePassword
             onPasswordChanged={handlePasswordChanged}
+            onCancel={!technician.mustChangePassword ? handleCancel : null}
             isFirstTime={technician.isFirstLogin}
         />
     );

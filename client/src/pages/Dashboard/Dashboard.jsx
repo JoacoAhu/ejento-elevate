@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
     Star,
     Users,
@@ -17,18 +18,26 @@ import {
     X,
     Trophy,
     Award,
-    TrendingUp
+    TrendingUp,
+    LogOut,
+    Key,
+    ChevronDown,
+    User
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import './Dashboard.scss';
 import {dashboardAPI, reviewsAPI, techniciansAPI} from "../../utils/api.js";
 
 const Dashboard = () => {
+    const { technician, logout } = useAuth();
+    const navigate = useNavigate();
     const [reviews, setReviews] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [loadingResponses, setLoadingResponses] = useState({});
     const [loadingResponseApprovals, setLoadingResponseApprovals] = useState({});
     const [openMenuId, setOpenMenuId] = useState(null);
     const [editingPersona, setEditingPersona] = useState(null);
+    const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
     const [personaForm, setPersonaForm] = useState({
         traits: ['', '', ''],
         personality: ['', ''],
@@ -46,6 +55,7 @@ const Dashboard = () => {
     const [error, setError] = useState('');
 
     const menuRef = useRef(null);
+    const profileDropdownRef = useRef(null);
 
     useEffect(() => {
         fetchDashboardData();
@@ -57,6 +67,10 @@ const Dashboard = () => {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
                 setOpenMenuId(null);
                 setEditingPersona(null);
+            }
+
+            if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
+                setProfileDropdownOpen(false);
             }
         };
 
@@ -194,6 +208,23 @@ const Dashboard = () => {
         } finally {
             setSavingPersona(false);
         }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+            navigate('/login');
+        } catch (error) {
+            console.error('Logout error:', error);
+        }
+    };
+
+    const handleChangePassword = () => {
+        navigate('/change-password');
+    };
+
+    const toggleProfileDropdown = () => {
+        setProfileDropdownOpen(!profileDropdownOpen);
     };
 
     const formatDate = (dateString) => {
@@ -555,6 +586,74 @@ const Dashboard = () => {
                     <button className="dashboard__refresh-btn" onClick={fetchDashboardData}>
                         Refresh Data
                     </button>
+
+                    {/* Profile Dropdown */}
+                    <div className="profile-dropdown" ref={profileDropdownRef}>
+                        <button
+                            className="profile-dropdown__trigger"
+                            onClick={toggleProfileDropdown}
+                        >
+                            <div className="profile-dropdown__avatar">
+                                {technician ? getInitials(technician.name) : <User size={20} />}
+                            </div>
+                            <div className="profile-dropdown__info">
+                                <span className="profile-dropdown__name">
+                                    {technician?.name || 'Unknown User'}
+                                </span>
+                                <span className="profile-dropdown__code">
+                                    {technician?.crmCode || ''}
+                                </span>
+                            </div>
+                            <ChevronDown
+                                size={16}
+                                className={`profile-dropdown__chevron ${profileDropdownOpen ? 'profile-dropdown__chevron--open' : ''}`}
+                            />
+                        </button>
+
+                        <AnimatePresence>
+                            {profileDropdownOpen && (
+                                <motion.div
+                                    className="profile-dropdown__menu"
+                                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                    transition={{ duration: 0.15 }}
+                                >
+                                    <div className="profile-dropdown__menu-header">
+                                        <div className="profile-dropdown__menu-avatar">
+                                            {technician ? getInitials(technician.name) : <User size={24} />}
+                                        </div>
+                                        <div className="profile-dropdown__menu-info">
+                                            <div className="profile-dropdown__menu-name">
+                                                {technician?.name || 'Unknown User'}
+                                            </div>
+                                            <div className="profile-dropdown__menu-email">
+                                                {technician?.email || 'No email'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="profile-dropdown__menu-divider"></div>
+
+                                    <button
+                                        className="profile-dropdown__menu-item"
+                                        onClick={handleChangePassword}
+                                    >
+                                        <Key size={16} />
+                                        <span>Change Password</span>
+                                    </button>
+
+                                    <button
+                                        className="profile-dropdown__menu-item profile-dropdown__menu-item--danger"
+                                        onClick={handleLogout}
+                                    >
+                                        <LogOut size={16} />
+                                        <span>Log Out</span>
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
                 </div>
             </div>
 
