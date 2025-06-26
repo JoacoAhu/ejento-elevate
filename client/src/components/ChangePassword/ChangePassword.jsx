@@ -10,11 +10,11 @@ import {
     CheckCircle,
     Key
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import './ChangePassword.scss';
-import {useAuth} from "../../context/AuthContext.jsx";
 
 const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) => {
-    const { technician, updateTechnician } = useAuth();
+    const { technician, updateTechnician, changePassword } = useAuth();
     const [formData, setFormData] = useState({
         currentPassword: '',
         newPassword: '',
@@ -78,37 +78,26 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
         setError('');
 
         try {
-            const token = localStorage.getItem('authToken');
-            const response = await fetch('http://localhost:8000/api/auth/change-password', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    currentPassword: formData.currentPassword,
-                    newPassword: formData.newPassword
-                })
-            });
-
-            const result = await response.json();
+            // Use the changePassword method from AuthContext (which now uses the API utility)
+            const result = await changePassword(formData.currentPassword, formData.newPassword);
 
             if (result.success) {
                 setSuccess(true);
-                // Update technician state to reflect password change
-                updateTechnician({ mustChangePassword: false });
 
                 // Redirect after a short delay
                 setTimeout(() => {
-                    onPasswordChanged();
+                    if (onPasswordChanged) {
+                        onPasswordChanged();
+                    } else {
+                        window.location.href = '/dashboard';
+                    }
                 }, 2000);
             } else {
                 setError(result.message || 'Failed to change password');
             }
         } catch (error) {
             console.error('Change password error:', error);
-            setError('Connection error. Please try again.');
+            setError(error.message || 'Connection error. Please try again.');
         } finally {
             setLoading(false);
         }

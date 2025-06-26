@@ -20,6 +20,7 @@ import {
     TrendingUp
 } from 'lucide-react';
 import './Dashboard.scss';
+import {dashboardAPI, reviewsAPI, techniciansAPI} from "../../utils/api.js";
 
 const Dashboard = () => {
     const [reviews, setReviews] = useState([]);
@@ -40,7 +41,9 @@ const Dashboard = () => {
         activeTechnicians: 0,
         totalRewards: 0
     });
-    const [topTechnicians, setTopTechnicians] = useState([]); // Add this new state
+    const [topTechnicians, setTopTechnicians] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     const menuRef = useRef(null);
 
@@ -65,64 +68,56 @@ const Dashboard = () => {
 
     const fetchDashboardData = async () => {
         try {
-            // Fetch stats from real API
-            const statsResponse = await fetch('http://localhost:8000/api/dashboard/stats');
-            const statsResult = await statsResponse.json();
+            setLoading(true);
+            setError('');
 
-            if (statsResult.success) {
-                setStats(statsResult.data);
-            }
+            // Use API utility instead of raw fetch
+            const [statsResult, topTechResult, reviewsResult] = await Promise.all([
+                dashboardAPI.getStats(),
+                dashboardAPI.getTopTechnicians(),
+                reviewsAPI.getReviews()
+            ]);
 
-            // Fetch top technicians
-            const topTechResponse = await fetch('http://localhost:8000/api/dashboard/top-technicians');
-            const topTechResult = await topTechResponse.json();
+            setStats(statsResult.data);
+            setTopTechnicians(topTechResult.data);
 
-            if (topTechResult.success) {
-                setTopTechnicians(topTechResult.data);
-            }
+            // Transform the reviews data to match your frontend format
+            const transformedReviews = reviewsResult.data.map(review => ({
+                id: review.id,
+                customerName: review.customerName,
+                technicianName: review.technicianName,
+                technicianCrmCode: review.technicianCrmCode,
+                rating: review.rating,
+                text: review.text,
+                date: review.date,
+                sentiment: review.sentiment,
+                responded: review.responded,
+                source: review.source,
+                status: review.status,
+                published: review.published,
+                publishedAt: review.publishedAt,
+                responseApprovalStatus: review.responseApprovalStatus || 'pending',
+                responseApprovedBy: review.responseApprovedBy || null,
+                responseApprovedAt: review.responseApprovedAt || null,
+                // Add AI response if it exists
+                aiResponse: review.responseText ? {
+                    text: review.responseText,
+                    generatedAt: review.responseDate
+                } : null
+            }));
 
-            // Fetch reviews from real API
-            const reviewsResponse = await fetch('http://localhost:8000/api/reviews');
-            const reviewsResult = await reviewsResponse.json();
-
-            if (reviewsResult.success) {
-                // Transform the data to match your frontend format
-                const transformedReviews = reviewsResult.data.map(review => ({
-                    id: review.id,
-                    customerName: review.customerName,
-                    technicianName: review.technicianName,
-                    technicianCrmCode: review.technicianCrmCode,
-                    rating: review.rating,
-                    text: review.text,
-                    date: review.date,
-                    sentiment: review.sentiment,
-                    responded: review.responded,
-                    source: review.source,
-                    status: review.status,
-                    published: review.published,
-                    publishedAt: review.publishedAt,
-                    // Add response approval fields
-                    responseApprovalStatus: review.responseApprovalStatus || 'pending',
-                    responseApprovedBy: review.responseApprovedBy || null,
-                    responseApprovedAt: review.responseApprovedAt || null,
-                    // Add AI response if it exists
-                    aiResponse: review.responseText ? {
-                        text: review.responseText,
-                        generatedAt: review.responseDate
-                    } : null
-                }));
-
-                setReviews(transformedReviews);
-            }
+            setReviews(transformedReviews);
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
+            setError(error.message || 'Failed to load dashboard data');
+        } finally {
+            setLoading(false);
         }
     };
 
     const fetchTechnicianPersona = async (crmCode) => {
         try {
-            const response = await fetch(`http://localhost:8000/api/technicians/crm/${crmCode}`);
-            const result = await response.json();
+            const result = await techniciansAPI.getTechnicianByCrmCode(crmCode);
 
             if (result.success && result.data.persona) {
                 const persona = result.data.persona;
@@ -184,30 +179,16 @@ const Dashboard = () => {
         try {
             setSavingPersona(true);
 
-            const response = await fetch(`http://localhost:8000/api/technicians/crm/${crmCode}/persona`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    persona: {
-                        traits: personaForm.traits.filter(trait => trait.trim() !== ''),
-                        personality: personaForm.personality.filter(p => p.trim() !== '').join(' and '),
-                        communicationStyle: personaForm.communicationStyle.filter(cs => cs.trim() !== '').join(' and ')
-                    }
-                })
+            const result = await techniciansAPI.updatePersona(crmCode, {
+                traits: personaForm.traits.filter(trait => trait.trim() !== ''),
+                personality: personaForm.personality.filter(p => p.trim() !== '').join(' and '),
+                communicationStyle: personaForm.communicationStyle.filter(cs => cs.trim() !== '').join(' and ')
             });
 
-            const result = await response.json();
-
-            if (result.success) {
-                alert(`Persona updated successfully for ${result.data.name} (${crmCode})!`);
-                setEditingPersona(null);
-                setOpenMenuId(null);
-                await fetchDashboardData();
-            } else {
-                alert(`Error: ${result.message}`);
-            }
+            alert(`Persona updated successfully for ${result.data.name} (${crmCode})!`);
+            setEditingPersona(null);
+            setOpenMenuId(null);
+            await fetchDashboardData();
         } catch (error) {
             alert(`Error: ${error.message}`);
         } finally {
@@ -266,20 +247,8 @@ const Dashboard = () => {
         try {
             setLoadingResponses(prev => ({ ...prev, [reviewId]: true }));
 
-            const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/generate-response`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                await fetchDashboardData();
-            } else {
-                alert(`Error: ${result.message}`);
-            }
+            const result = await reviewsAPI.generateResponse(reviewId);
+            await fetchDashboardData();
         } catch (error) {
             alert(`Error: ${error.message}`);
         } finally {
@@ -291,25 +260,9 @@ const Dashboard = () => {
         try {
             setLoadingResponseApprovals(prev => ({ ...prev, [reviewId]: true }));
 
-            const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/approve-response`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'approve',
-                    approvedBy: 'current_user'
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                await fetchDashboardData();
-                alert('Response approved successfully!');
-            } else {
-                alert(`Error: ${result.message}`);
-            }
+            const result = await reviewsAPI.approveResponse(reviewId, 'current_user');
+            await fetchDashboardData();
+            alert('Response approved successfully!');
         } catch (error) {
             alert(`Error: ${error.message}`);
         } finally {
@@ -319,23 +272,11 @@ const Dashboard = () => {
 
     const publishResponse = async (reviewId) => {
         try {
-            const response = await fetch(`http://localhost:8000/api/reviews/${reviewId}/publish-response`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                alert('Response published successfully!');
-                await fetchDashboardData();
-            } else {
-                alert(`Error publishing response: ${result.message}`);
-            }
+            const result = await reviewsAPI.publishResponse(reviewId);
+            alert('Response published successfully!');
+            await fetchDashboardData();
         } catch (error) {
-            alert(`Error: ${error.message}`);
+            alert(`Error publishing response: ${error.message}`);
         }
     };
 
@@ -422,7 +363,6 @@ const Dashboard = () => {
     };
 
     const renderPersonaMenu = (review) => {
-
         if (editingPersona === review.id) {
             return (
                 <div className="persona-edit-form">
@@ -577,6 +517,31 @@ const Dashboard = () => {
         );
     };
 
+    if (loading) {
+        return (
+            <div className="dashboard dashboard--loading">
+                <div className="loading-spinner">
+                    <div className="spinner"></div>
+                    <p>Loading dashboard...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="dashboard dashboard--error">
+                <div className="error-message">
+                    <h2>Failed to load dashboard</h2>
+                    <p>{error}</p>
+                    <button onClick={fetchDashboardData} className="retry-btn">
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="dashboard">
             {/* Header Section */}
@@ -587,8 +552,8 @@ const Dashboard = () => {
                 </div>
 
                 <div className="dashboard__actions">
-                    <button className="dashboard__refresh-btn">
-                        Last refreshed at Nov 11 • 11:10am
+                    <button className="dashboard__refresh-btn" onClick={fetchDashboardData}>
+                        Refresh Data
                     </button>
                 </div>
             </div>
@@ -798,8 +763,8 @@ const Dashboard = () => {
                                                   style={{
                                                       height: '120px',
                                                       resize: 'none',
-                                                      overflowY: 'scroll', // Always show vertical scrollbar
-                                                      overflowX: 'hidden', // Hide horizontal scrollbar
+                                                      overflowY: 'scroll',
+                                                      overflowX: 'hidden',
                                                       width: '100%',
                                                       padding: '12px',
                                                       border: '1px solid #e1e5e9',

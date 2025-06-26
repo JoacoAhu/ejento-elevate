@@ -1,6 +1,6 @@
 // src/context/AuthContext.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { authAPI } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -29,25 +29,15 @@ export const AuthProvider = ({ children }) => {
                 return;
             }
 
-            const response = await fetch('http://localhost:8000/api/auth/me', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                },
-                credentials: 'include'
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                setTechnician(result.technician);
-            } else {
-                // Token is invalid, clear it
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('technician');
-            }
+            // Use the API utility instead of raw fetch
+            const result = await authAPI.getMe();
+            setTechnician(result.technician);
         } catch (error) {
             console.error('Auth check failed:', error);
+            // Clear invalid auth data
             localStorage.removeItem('authToken');
             localStorage.removeItem('technician');
+            setTechnician(null);
         } finally {
             setLoading(false);
         }
@@ -55,16 +45,7 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (crmCode, password) => {
         try {
-            const response = await fetch('http://localhost:8000/api/auth/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({ crmCode, password })
-            });
-
-            const result = await response.json();
+            const result = await authAPI.login(crmCode, password);
 
             if (result.success) {
                 if (result.firstLogin) {
@@ -86,16 +67,13 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('Login error:', error);
-            return { success: false, message: 'Connection error. Please try again.' };
+            return { success: false, message: error.message || 'Connection error. Please try again.' };
         }
     };
 
     const logout = async () => {
         try {
-            await fetch('http://localhost:8000/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include'
-            });
+            await authAPI.logout();
         } catch (error) {
             console.error('Logout error:', error);
         } finally {
@@ -113,18 +91,7 @@ export const AuthProvider = ({ children }) => {
 
     const changePassword = async (currentPassword, newPassword) => {
         try {
-            const token = localStorage.getItem('authToken');
-            const response = await fetch('http://localhost:8000/api/auth/change-password', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                credentials: 'include',
-                body: JSON.stringify({ currentPassword, newPassword })
-            });
-
-            const result = await response.json();
+            const result = await authAPI.changePassword(currentPassword, newPassword);
 
             if (result.success) {
                 // Update technician state
@@ -135,7 +102,7 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('Change password error:', error);
-            return { success: false, message: 'Connection error. Please try again.' };
+            return { success: false, message: error.message || 'Connection error. Please try again.' };
         }
     };
 
