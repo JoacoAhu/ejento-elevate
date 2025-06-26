@@ -1,0 +1,225 @@
+// App.scss
+$primary-color: #2563eb;
+$success-color: #16a34a;
+$danger-color: #dc2626;
+$white: #ffffff;
+$gray-50: #f9fafb;
+$gray-100: #f3f4f6;
+$gray-200: #e5e7eb;
+$gray-300: #d1d5db;
+$gray-500: #6b7280;
+$gray-600: #4b5563;
+$gray-700: #374151;
+$gray-800: #1f2937;
+$gray-900: #111827;
+
+.app {
+  min-height: 100vh;
+  background: $gray-50;
+
+  &__navbar {
+    background: $white;
+    border-bottom: 1px solid $gray-200;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  &__navbar-content {
+    max-width: 80rem;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 64px;
+  }
+
+  &__navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+
+  &__navbar-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: $gray-900;
+    margin: 0;
+  }
+
+  &__navbar-nav {
+    display: flex;
+    gap: 8px;
+  }
+
+  &__navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  &__navbar-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: transparent;
+    color: $gray-600;
+
+    &:hover {
+      background: $gray-100;
+      color: $gray-900;
+    }
+
+    &--active {
+      background: $primary-color;
+      color: $white;
+
+      &:hover {
+        background: #1d4ed8;
+      }
+    }
+
+    &--secondary {
+      background: $gray-100;
+      color: $gray-700;
+
+      &:hover {
+        background: $gray-200;
+      }
+    }
+
+    &--logout {
+      background: $danger-color;
+      color: $white;
+
+      &:hover {
+        background: #b91c1c;
+      }
+    }
+  }
+
+  &__user-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 0.875rem;
+  }
+
+  &__user-name {
+    font-weight: 500;
+    color: $gray-900;
+  }
+
+  &__user-crm {
+    color: $gray-500;
+    font-size: 0.75rem;
+  }
+
+  &__navbar-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  &__main {
+    min-height: calc(100vh - 64px);
+  }
+
+  &__content {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+// LoadingSpinner.scss
+.loading-spinner {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $gray-50;
+
+  &__container {
+    text-align: center;
+  }
+
+  &__spinner {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px auto;
+    position: relative;
+  }
+
+  &__inner {
+    width: 100%;
+    height: 100%;
+    border: 4px solid $gray-200;
+    border-top: 4px solid $primary-color;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  &__text {
+    color: $gray-600;
+    font-size: 0.875rem;
+    margin: 0;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Responsive design
+@media (max-width: 768px) {
+  .app {
+    &__navbar {
+      padding: 0 16px;
+    }
+
+    &__navbar-content {
+      flex-direction: column;
+      height: auto;
+      padding: 12px 0;
+      gap: 12px;
+    }
+
+    &__navbar-left {
+      width: 100%;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    &__navbar-nav {
+      gap: 4px;
+    }
+
+    &__navbar-right {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    &__user-info {
+      align-items: flex-start;
+    }
+
+    &__navbar-actions {
+      gap: 4px;
+    }
+
+    &__navbar-button {
+      padding: 6px 12px;
+      font-size: 0.8rem;
+    }
+  }
+}

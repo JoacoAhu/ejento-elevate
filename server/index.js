@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { Sequelize, DataTypes, Op } = require('sequelize');
 require('dotenv').config();
+const cookieParser = require('cookie-parser');
+const { authenticateToken, generateToken, optionalAuth } = require('./middleware/auth');
 
 // Import models from the models directory
 const db = require('./models');
@@ -25,6 +27,218 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+app.use(cookieParser());
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { crmCode, password } = req.body;
+
+        if (!crmCode || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'CRM code and password are required'
+            });
+        }
+
+        // Find technician by CRM code
+        const technician = await Technician.findOne({
+            where: { crmCode: crmCode.toUpperCase(), isActive: true },
+            include: [
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        if (!technician) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid CRM code or password'
+            });
+        }
+
+        // If first login and no password set, generate one
+        if (technician.isFirstLogin && !technician.hashedPassword) {
+            const generatedPassword = await technician.generateFirstTimePassword();
+            await technician.save();
+
+            return res.json({
+                success: true,
+                firstLogin: true,
+                temporaryPassword: generatedPassword,
+                message: 'First login detected. Use this temporary password to continue.'
+            });
+        }
+
+        // Check password
+        const isValidPassword = await technician.checkPassword(password);
+        if (!isValidPassword) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid CRM code or password'
+            });
+        }
+
+        // Update last login
+        technician.lastLoginAt = new Date();
+        await technician.save();
+
+        // Generate token
+        const token = generateToken(technician.id);
+
+        // Set cookie
+        res.cookie('authToken', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        });
+
+        res.json({
+            success: true,
+            message: 'Login successful',
+            technician: {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                mustChangePassword: technician.mustChangePassword,
+                client: technician.client
+            },
+            token
+        });
+
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Login failed',
+            error: error.message
+        });
+    }
+});
+
+// Change password endpoint
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!newPassword || newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters long'
+            });
+        }
+
+        const technician = req.technician;
+
+        // Check current password (skip for first login)
+        if (!technician.isFirstLogin) {
+            const isValidPassword = await technician.checkPassword(currentPassword);
+            if (!isValidPassword) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Current password is incorrect'
+                });
+            }
+        }
+
+        // Set new password
+        await technician.setPassword(newPassword);
+        technician.mustChangePassword = false;
+        await technician.save();
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to change password',
+            error: error.message
+        });
+    }
+});
+
+
+// Get current user info
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+    try {
+        const technician = req.technician;
+
+        res.json({
+            success: true,
+            technician: {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                mustChangePassword: technician.mustChangePassword,
+                lastLoginAt: technician.lastLoginAt,
+                client: technician.client
+            }
+        });
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get user info',
+            error: error.message
+        });
+    }
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('authToken');
+    res.json({
+        success: true,
+        message: 'Logged out successfully'
+    });
+});
+
+// Admin endpoint to generate password for technician
+app.post('/api/admin/technicians/:crmCode/generate-password', async (req, res) => {
+    try {
+        const { crmCode } = req.params;
+
+        const technician = await Technician.findOne({
+            where: { crmCode: crmCode.toUpperCase() }
+        });
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: 'Technician not found'
+            });
+        }
+
+        const newPassword = await technician.generateFirstTimePassword();
+        await technician.save();
+
+        res.json({
+            success: true,
+            message: 'Password generated successfully',
+            crmCode: technician.crmCode,
+            temporaryPassword: newPassword
+        });
+
+    } catch (error) {
+        console.error('Generate password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate password',
+            error: error.message
+        });
+    }
+});
+
 
 // Database initialization
 async function initializeDatabase() {
@@ -233,9 +447,14 @@ app.get('/api/ai/test', async (req, res) => {
 });
 
 // UPDATED Get all reviews endpoint with publishing fields
-app.get('/api/reviews', async (req, res) => {
+app.get('/api/reviews', authenticateToken, async (req, res) => {
     try {
+        const technicianId = req.technician.id;
+
         const reviews = await Review.findAll({
+            where: {
+                technicianId: technicianId
+            },
             include: [
                 {
                     model: Technician,
@@ -394,16 +613,25 @@ app.put('/api/technicians/crm/:crmCode/persona', async (req, res) => {
 
 
 // Get dashboard stats
-app.get('/api/dashboard/stats', async (req, res) => {
+app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     try {
-        const totalReviews = await Review.count();
+        const technicianId = req.technician.id;
+
+        const totalReviews = await Review.count({
+            where: { technicianId: technicianId }
+        });
+
         const averageRating = await Review.findAll({
+            where: { technicianId: technicianId },
             attributes: [[sequelize.fn('AVG', sequelize.col('rating')), 'avgRating']]
         });
-        const activeTechnicians = await Technician.count({ where: { isActive: true } });
 
-        // Calculate total rewards (assuming $5 per positive review)
-        const positiveReviews = await Review.count({ where: { rating: { [Op.gte]: 4 } } });
+        const positiveReviews = await Review.count({
+            where: {
+                technicianId: technicianId,
+                rating: { [Op.gte]: 4 }
+            }
+        });
         const totalRewards = positiveReviews * 5;
 
         res.json({
@@ -411,7 +639,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
             data: {
                 totalReviews: totalReviews,
                 averageRating: parseFloat(averageRating[0].dataValues.avgRating || 0).toFixed(1),
-                activeTechnicians: activeTechnicians,
+                activeTechnicians: 1,
                 totalRewards: totalRewards
             }
         });
