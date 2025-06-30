@@ -14,26 +14,23 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
-const isEjentoMode = () => {
-    const params = new URLSearchParams(window.location.search);
-    return params.has('location') && params.has('user');
-};
-
-// Get the appropriate API path based on mode
-const getApiPath = (regularPath, ejentoPath) => {
-    return isEjentoMode() ? ejentoPath : regularPath;
-};
-
 class ApiClient {
     constructor() {
         this.baseURL = API_BASE_URL;
     }
 
-    // Create default headers (no token needed for cookie-based auth)
+    // Create default headers
     getDefaultHeaders() {
         return {
             'Content-Type': 'application/json',
         };
+    }
+
+    // Add URL parameters from current page
+    addUrlParams(path) {
+        const params = new URLSearchParams(window.location.search);
+        const queryString = params.toString();
+        return queryString ? `${path}?${queryString}` : path;
     }
 
     // Generic fetch wrapper
@@ -42,7 +39,7 @@ class ApiClient {
 
         const config = {
             headers: this.getDefaultHeaders(),
-            credentials: 'include', // Include cookies for both auth types
+            credentials: 'include',
             ...options,
         };
 
@@ -59,14 +56,7 @@ class ApiClient {
 
             // Handle 401 - authentication failed
             if (response.status === 401) {
-                // In Ejento mode, show error instead of redirecting
-                if (isEjentoMode()) {
-                    throw new Error('Authentication expired. Please refresh the page.');
-                } else {
-                    // Regular mode - redirect to login
-                    window.location.href = '/login';
-                    throw new Error('Authentication expired. Please log in again.');
-                }
+                throw new Error('Authentication expired. Please refresh the page.');
             }
 
             // Handle other HTTP errors
@@ -125,58 +115,22 @@ class ApiClient {
 // Create a singleton instance
 const apiClient = new ApiClient();
 
-// Helper function to add URL params for Ejento mode
-const addEjentoParams = (path) => {
-    if (isEjentoMode()) {
-        const params = new URLSearchParams(window.location.search);
-        const queryString = params.toString();
-        return `${path}?${queryString}`;
-    }
-    return path;
-};
-
-// Export specific API functions with mode detection
+// Export specific API functions - all use Ejento endpoints
 export const authAPI = {
-    login: (crmCode, password) =>
-        apiClient.post('/api/auth/login', { crmCode, password }),
-
-    changePassword: (currentPassword, newPassword) =>
-        apiClient.post('/api/auth/change-password', { currentPassword, newPassword }),
-
-    getMe: () => {
-        const path = getApiPath('/api/auth/me', '/api/auth/verify-ejento');
-        return apiClient.get(addEjentoParams(path));
-    },
-
-    logout: () =>
-        apiClient.post('/api/auth/logout'),
+    getMe: () => apiClient.get(apiClient.addUrlParams('/api/auth/verify-ejento')),
+    logout: () => apiClient.post('/api/auth/logout'),
 };
 
 export const dashboardAPI = {
-    getStats: () => {
-        const path = getApiPath('/api/dashboard/stats', '/api/ejento/dashboard/stats');
-        return apiClient.get(addEjentoParams(path));
-    },
-
-    getTopTechnicians: () => {
-        const path = getApiPath('/api/dashboard/top-technicians', '/api/ejento/dashboard/top-technicians');
-        return apiClient.get(addEjentoParams(path));
-    },
+    getStats: () => apiClient.get(apiClient.addUrlParams('/api/ejento/dashboard/stats')),
+    getTopTechnicians: () => apiClient.get(apiClient.addUrlParams('/api/ejento/dashboard/top-technicians')),
 };
 
 export const reviewsAPI = {
-    getReviews: () => {
-        const path = getApiPath('/api/reviews', '/api/ejento/reviews');
-        return apiClient.get(addEjentoParams(path));
-    },
+    getReviews: () => apiClient.get(apiClient.addUrlParams('/api/ejento/reviews')),
 
-    generateResponse: (reviewId) => {
-        const path = getApiPath(
-            `/api/reviews/${reviewId}/generate-response`,
-            `/api/ejento/reviews/${reviewId}/generate-response`
-        );
-        return apiClient.post(addEjentoParams(path));
-    },
+    generateResponse: (reviewId) =>
+        apiClient.post(apiClient.addUrlParams(`/api/ejento/reviews/${reviewId}/generate-response`)),
 
     approveResponse: (reviewId, approvedBy) =>
         apiClient.post(`/api/reviews/${reviewId}/approve-response`, { approvedBy }),
@@ -189,8 +143,7 @@ export const reviewsAPI = {
 };
 
 export const techniciansAPI = {
-    getTechnicians: () =>
-        apiClient.get('/api/technicians'),
+    getTechnicians: () => apiClient.get('/api/technicians'),
 
     getTechnicianByCrmCode: (crmCode) =>
         apiClient.get(`/api/technicians/crm/${crmCode}`),
@@ -251,7 +204,6 @@ export const adminAPI = {
 
 // Utility functions
 export const utils = {
-    isEjentoMode,
     getUrlParams: () => {
         const params = new URLSearchParams(window.location.search);
         return {

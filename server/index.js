@@ -1863,15 +1863,7 @@ app.get('/api/ejento/dashboard/top-technicians', authenticateEjentoUser, async (
     try {
         const clientId = req.ejento.client.id;
 
-        // Only admin/manager can see all technicians
-        if (req.ejento.userRole === 'technician') {
-            return res.json({
-                success: true,
-                data: [],
-                total: 0,
-                message: 'Technicians can only see their own stats'
-            });
-        }
+
 
         const technicians = await Technician.findAll({
             where: { clientId: clientId, isActive: true },
