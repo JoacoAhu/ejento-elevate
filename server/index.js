@@ -4,11 +4,12 @@ const helmet = require('helmet');
 const { Sequelize, DataTypes, Op } = require('sequelize');
 require('dotenv').config();
 const cookieParser = require('cookie-parser');
+const { authenticateEjentoUser, generateEjentoToken, requireAdminRole, requireManagerRole } = require('./middleware/ejentoAuth');
 const { authenticateToken, generateToken, optionalAuth } = require('./middleware/auth');
 
 // Import models from the models directory
 const db = require('./models');
-const { Client, Technician, Review, Prompt } = db;
+const { Client, Technician, Review, Prompt, EjentoLocationMapping, EjentoUserMapping, EjentoIntegration } = db;
 
 // Import OpenAI service
 const openaiService = require('./services/openaiService');
@@ -246,15 +247,15 @@ async function initializeDatabase() {
         await sequelize.authenticate();
         console.log('✅ Database connection established successfully.');
 
-        // Sync models (create tables if they don't exist)
         await sequelize.sync({ alter: true });
         console.log('✅ Database models synchronized.');
 
-        // Check if we have sample data, if not create some
         const clientCount = await Client.count();
         if (clientCount === 0) {
             await createSampleData();
         }
+
+        await createEjentoSampleData();
 
         await createDefaultPrompts();
 
@@ -1416,6 +1417,621 @@ app.use((err, req, res, next) => {
         error: 'Something went wrong!',
         message: err.message
     });
+});
+
+async function createEjentoSampleData() {
+    try {
+        console.log('🔗 Creating Ejento integration sample data...');
+
+        // Import the new models
+        const { EjentoLocationMapping, EjentoUserMapping, EjentoIntegration } = db;
+
+        // Check if we already have sample Ejento data
+        const existingMapping = await EjentoLocationMapping.count();
+        if (existingMapping > 0) {
+            console.log('✅ Ejento sample data already exists.');
+            return;
+        }
+
+        // Get existing client (Hivemind Pest Control)
+        const client = await Client.findOne({
+            where: { name: 'Hivemind Pest Control' }
+        });
+
+        if (!client) {
+            throw new Error('No client found. Please run createSampleData first.');
+        }
+
+        // Create Ejento location mapping
+        const locationMapping = await EjentoLocationMapping.create({
+            ejentoLocationId: 'BFSHDH1284FHT', // Mock Ejento location ID
+            clientId: client.id,
+            locationName: 'Hivemind Pest Control - Main Location',
+            isActive: true
+        });
+
+        // Get existing technicians
+        const antoine = await Technician.findOne({
+            where: { crmCode: 'TECH001' }
+        });
+
+        const marcus = await Technician.findOne({
+            where: { crmCode: 'TECH002' }
+        });
+
+        if (!antoine || !marcus) {
+            throw new Error('Technicians not found. Please run createSampleData first.');
+        }
+
+        // Create Ejento user mappings
+        await EjentoUserMapping.create({
+            ejentoUserId: 'FHUDHWUE4884', // Mock Ejento user ID for Antoine
+            technicianId: antoine.id,
+            ejentoLocationMappingId: locationMapping.id,
+            userRole: 'technician',
+            isActive: true
+        });
+
+        await EjentoUserMapping.create({
+            ejentoUserId: 'GHKJL9876543', // Mock Ejento user ID for Marcus
+            technicianId: marcus.id,
+            ejentoLocationMappingId: locationMapping.id,
+            userRole: 'admin', // Make Marcus an admin for testing
+            isActive: true
+        });
+
+        // Create Ejento integration record
+        await EjentoIntegration.create({
+            clientId: client.id,
+            googleAccountId: 'google_business_account_123',
+            googleBusinessProfileId: 'google_business_profile_456',
+            integrationStatus: 'active',
+            syncSettings: {
+                autoSync: true,
+                syncFrequency: 'hourly',
+                autoRespond: false
+            },
+            isActive: true
+        });
+
+        console.log('✅ Ejento integration sample data created successfully.');
+        console.log('🔗 Test URLs:');
+        console.log('   Antoine (Technician): /dashboard?location=BFSHDH1284FHT&user=FHUDHWUE4884');
+        console.log('   Marcus (Admin): /dashboard?location=BFSHDH1284FHT&user=GHKJL9876543');
+
+    } catch (error) {
+        console.error('❌ Error creating Ejento sample data:', error);
+    }
+}
+
+// API Endpoints for managing Ejento mappings
+// Add these to your main server.js file
+
+// Get all location mappings (admin only)
+app.get('/api/admin/ejento/locations', requireAdminRole, async (req, res) => {
+    try {
+        const locations = await EjentoLocationMapping.findAll({
+            include: [
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name', 'email']
+                }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: locations,
+            total: locations.length
+        });
+    } catch (error) {
+        console.error('Error fetching location mappings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch location mappings',
+            error: error.message
+        });
+    }
+});
+
+// Create new location mapping (admin only)
+app.post('/api/admin/ejento/locations', requireAdminRole, async (req, res) => {
+    try {
+        const { ejentoLocationId, clientId, locationName } = req.body;
+
+        if (!ejentoLocationId || !clientId) {
+            return res.status(400).json({
+                success: false,
+                message: 'ejentoLocationId and clientId are required'
+            });
+        }
+
+        const locationMapping = await EjentoLocationMapping.create({
+            ejentoLocationId,
+            clientId,
+            locationName,
+            isActive: true
+        });
+
+        res.json({
+            success: true,
+            message: 'Location mapping created successfully',
+            data: locationMapping
+        });
+    } catch (error) {
+        console.error('Error creating location mapping:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create location mapping',
+            error: error.message
+        });
+    }
+});
+
+// Get all user mappings for a location (admin/manager only)
+app.get('/api/admin/ejento/users', requireManagerRole, async (req, res) => {
+    try {
+        const { locationId } = req.query;
+
+        let whereClause = {};
+        if (locationId) {
+            const locationMapping = await EjentoLocationMapping.findOne({
+                where: { ejentoLocationId: locationId }
+            });
+            if (locationMapping) {
+                whereClause.ejentoLocationMappingId = locationMapping.id;
+            }
+        }
+
+        const users = await EjentoUserMapping.findAll({
+            where: whereClause,
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'crmCode']
+                },
+                {
+                    model: EjentoLocationMapping,
+                    as: 'locationMapping',
+                    attributes: ['ejentoLocationId', 'locationName']
+                }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: users,
+            total: users.length
+        });
+    } catch (error) {
+        console.error('Error fetching user mappings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch user mappings',
+            error: error.message
+        });
+    }
+});
+
+// Create new user mapping (admin only)
+app.post('/api/admin/ejento/users', requireAdminRole, async (req, res) => {
+    try {
+        const { ejentoUserId, technicianId, ejentoLocationId, userRole = 'technician' } = req.body;
+
+        if (!ejentoUserId || !technicianId || !ejentoLocationId) {
+            return res.status(400).json({
+                success: false,
+                message: 'ejentoUserId, technicianId, and ejentoLocationId are required'
+            });
+        }
+
+        // Find the location mapping
+        const locationMapping = await EjentoLocationMapping.findOne({
+            where: { ejentoLocationId }
+        });
+
+        if (!locationMapping) {
+            return res.status(404).json({
+                success: false,
+                message: 'Location mapping not found'
+            });
+        }
+
+        const userMapping = await EjentoUserMapping.create({
+            ejentoUserId,
+            technicianId,
+            ejentoLocationMappingId: locationMapping.id,
+            userRole,
+            isActive: true
+        });
+
+        res.json({
+            success: true,
+            message: 'User mapping created successfully',
+            data: userMapping
+        });
+    } catch (error) {
+        console.error('Error creating user mapping:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create user mapping',
+            error: error.message
+        });
+    }
+});
+
+// Generate test URL with token
+app.post('/api/admin/ejento/generate-url', requireAdminRole, async (req, res) => {
+    try {
+        const { locationId, userId } = req.body;
+
+        if (!locationId || !userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'locationId and userId are required'
+            });
+        }
+
+        const token = generateEjentoToken(locationId, userId);
+        const url = `${req.protocol}://${req.get('host')}/dashboard?location=${locationId}&user=${userId}&token=${token}`;
+
+        res.json({
+            success: true,
+            data: {
+                url,
+                token,
+                expiresIn: '1 hour'
+            }
+        });
+    } catch (error) {
+        console.error('Error generating URL:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate URL',
+            error: error.message
+        });
+    }
+});
+
+module.exports = {
+    createEjentoSampleData
+};
+
+// Ejento Authentication Verification Endpoint
+app.get('/api/auth/verify-ejento', authenticateEjentoUser, async (req, res) => {
+    try {
+        // The authenticateEjentoUser middleware has already verified everything
+        // and attached the context to req.ejento
+
+        res.json({
+            success: true,
+            message: 'Ejento authentication successful',
+            data: {
+                locationId: req.ejento.locationId,
+                userId: req.ejento.userId,
+                client: req.ejento.client,
+                technician: req.ejento.technician,
+                userRole: req.ejento.userRole,
+                locationMapping: {
+                    id: req.ejento.locationMapping.id,
+                    locationName: req.ejento.locationMapping.locationName
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Ejento verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Verification failed',
+            error: error.message
+        });
+    }
+});
+
+// Get reviews for Ejento authenticated user
+app.get('/api/ejento/reviews', authenticateEjentoUser, async (req, res) => {
+    try {
+        const technicianId = req.ejento.technician.id;
+        const clientId = req.ejento.client.id;
+
+        // Get reviews for this technician or all reviews for this client if admin/manager
+        let whereClause = {};
+
+        if (req.ejento.userRole === 'technician') {
+            whereClause.technicianId = technicianId;
+        } else if (['admin', 'manager'].includes(req.ejento.userRole)) {
+            whereClause.clientId = clientId;
+        }
+
+        const reviews = await Review.findAll({
+            where: whereClause,
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona', 'crmCode']
+                },
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ],
+            order: [['reviewDate', 'DESC']]
+        });
+
+        // Format the data for frontend compatibility
+        const formattedReviews = reviews.map(review => ({
+            id: review.id,
+            customerName: review.customerName,
+            technicianName: review.technician ? review.technician.name : 'Unknown',
+            technicianCrmCode: review.technician ? review.technician.crmCode : null,
+            rating: review.rating,
+            text: review.text,
+            date: review.reviewDate,
+            sentiment: review.sentiment,
+            responded: review.status === 'responded' || review.status === 'published',
+            source: review.source,
+            responseText: review.responseText,
+            responseDate: review.responseDate,
+            status: review.status,
+            published: review.status === 'published',
+            publishedAt: review.publishedAt,
+            publishedBy: review.publishedBy,
+            publishedPlatform: review.publishedPlatform,
+            responseApprovalStatus: review.responseApprovalStatus || 'pending',
+            responseApprovedBy: review.responseApprovedBy,
+            responseApprovedAt: review.responseApprovedAt
+        }));
+
+        res.json({
+            success: true,
+            data: formattedReviews,
+            total: formattedReviews.length,
+            userRole: req.ejento.userRole,
+            technician: req.ejento.technician,
+            client: req.ejento.client
+        });
+    } catch (error) {
+        console.error('Error fetching Ejento reviews:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch reviews',
+            error: error.message
+        });
+    }
+});
+
+// Get dashboard stats for Ejento authenticated user
+app.get('/api/ejento/dashboard/stats', authenticateEjentoUser, async (req, res) => {
+    try {
+        const technicianId = req.ejento.technician.id;
+        const clientId = req.ejento.client.id;
+
+        let whereClause = {};
+
+        if (req.ejento.userRole === 'technician') {
+            whereClause.technicianId = technicianId;
+        } else if (['admin', 'manager'].includes(req.ejento.userRole)) {
+            whereClause.clientId = clientId;
+        }
+
+        const totalReviews = await Review.count({ where: whereClause });
+
+        const averageRating = await Review.findAll({
+            where: whereClause,
+            attributes: [[sequelize.fn('AVG', sequelize.col('rating')), 'avgRating']]
+        });
+
+        const positiveReviews = await Review.count({
+            where: {
+                ...whereClause,
+                rating: { [Op.gte]: 4 }
+            }
+        });
+
+        const activeTechnicians = req.ejento.userRole === 'technician' ? 1 :
+            await Technician.count({ where: { clientId: clientId, isActive: true } });
+
+        const totalRewards = positiveReviews * 5;
+
+        res.json({
+            success: true,
+            data: {
+                totalReviews: totalReviews,
+                averageRating: parseFloat(averageRating[0].dataValues.avgRating || 0).toFixed(1),
+                activeTechnicians: activeTechnicians,
+                totalRewards: totalRewards
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching Ejento dashboard stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch dashboard stats',
+            error: error.message
+        });
+    }
+});
+
+// Get top technicians for Ejento authenticated user (admin/manager only)
+app.get('/api/ejento/dashboard/top-technicians', authenticateEjentoUser, async (req, res) => {
+    try {
+        const clientId = req.ejento.client.id;
+
+        // Only admin/manager can see all technicians
+        if (req.ejento.userRole === 'technician') {
+            return res.json({
+                success: true,
+                data: [],
+                total: 0,
+                message: 'Technicians can only see their own stats'
+            });
+        }
+
+        const technicians = await Technician.findAll({
+            where: { clientId: clientId, isActive: true },
+            include: [
+                {
+                    model: Review,
+                    as: 'reviews',
+                    required: false,
+                    attributes: ['id', 'rating', 'sentiment']
+                },
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        const technicianStats = technicians.map(technician => {
+            const reviews = technician.reviews || [];
+            const positiveReviews = reviews.filter(review => review.rating >= 4).length;
+            const totalReviews = reviews.length;
+            const avgRating = totalReviews > 0
+                ? (reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews).toFixed(1)
+                : 0;
+            const totalRewards = positiveReviews * 5;
+
+            return {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                positiveReviews: positiveReviews,
+                totalReviews: totalReviews,
+                averageRating: parseFloat(avgRating),
+                totalRewards: totalRewards,
+                performanceScore: (positiveReviews * 0.7) + (parseFloat(avgRating) * 0.3)
+            };
+        });
+
+        const topTechnicians = technicianStats
+            .filter(tech => tech.totalReviews > 0)
+            .sort((a, b) => {
+                if (b.positiveReviews !== a.positiveReviews) {
+                    return b.positiveReviews - a.positiveReviews;
+                }
+                return b.averageRating - a.averageRating;
+            })
+            .slice(0, 5);
+
+        res.json({
+            success: true,
+            data: topTechnicians,
+            total: topTechnicians.length
+        });
+
+    } catch (error) {
+        console.error('Error fetching Ejento top technicians:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch top technicians',
+            error: error.message
+        });
+    }
+});
+
+// Generate AI response for review (Ejento version)
+app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+
+        const review = await Review.findByPk(reviewId, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona']
+                }
+            ]
+        });
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        // Check if user has permission to generate response for this review
+        const hasPermission = req.ejento.userRole === 'admin' ||
+            req.ejento.userRole === 'manager' ||
+            (req.ejento.userRole === 'technician' && review.technicianId === req.ejento.technician.id);
+
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to generate responses for this review'
+            });
+        }
+
+        // Generate AI response using existing logic
+        const aiResult = await openaiService.generateReviewResponse(
+            {
+                customerName: review.customerName,
+                rating: review.rating,
+                text: review.text,
+                date: review.reviewDate,
+                sentiment: review.sentiment
+            },
+            review.technician
+        );
+
+        if (!aiResult.success) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to generate AI response',
+                error: aiResult.error,
+                fallbackResponse: aiResult.fallbackResponse
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+        const responseApprovalStatus = isNegative ? 'pending' : 'approved';
+
+        // Update the review in database
+        await review.update({
+            responseText: aiResult.response,
+            responseDate: new Date(),
+            status: 'responded',
+            responseApprovalStatus: responseApprovalStatus,
+            responseApprovedBy: isNegative ? null : 'system',
+            responseApprovedAt: isNegative ? null : new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'AI response generated successfully',
+            data: {
+                reviewId: reviewId,
+                response: aiResult.response,
+                usage: aiResult.usage,
+                responseApprovalStatus: responseApprovalStatus,
+                review: {
+                    id: review.id,
+                    responseText: aiResult.response,
+                    responseDate: new Date(),
+                    status: 'responded',
+                    responseApprovalStatus: responseApprovalStatus
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Ejento generate response error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
 });
 
 // Initialize database and start server

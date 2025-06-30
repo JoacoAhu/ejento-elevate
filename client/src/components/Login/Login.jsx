@@ -11,7 +11,7 @@ import {
     CheckCircle,
     Key
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext.jsx';
+import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './Login.scss';
 
 const Login = () => {

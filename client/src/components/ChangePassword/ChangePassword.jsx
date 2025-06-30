@@ -10,7 +10,7 @@ import {
     CheckCircle,
     Key
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './ChangePassword.scss';
 
 const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) => {

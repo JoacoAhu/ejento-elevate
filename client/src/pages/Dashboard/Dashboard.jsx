@@ -24,7 +24,7 @@ import {
     ChevronDown,
     User
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './Dashboard.scss';
 import {dashboardAPI, reviewsAPI, techniciansAPI} from "../../utils/api.js";
 
