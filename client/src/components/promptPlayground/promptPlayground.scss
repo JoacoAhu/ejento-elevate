@@ -451,7 +451,7 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     color: $gray-500;
 
     &-type {
-      background-color: $gray-100;
+      background-color: $gray-200;
       padding: 2px 8px;
       border-radius: 4px;
     }
@@ -1023,5 +1023,36 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     &__content {
       gap: 12px;
     }
+  }
+}
+
+.prompt-item__meta-creator {
+  position: relative;
+
+  &:hover::after {
+    content: 'Created by ' attr(data-creator);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-gray-900);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 1000;
+    margin-bottom: 4px;
+  }
+
+  &:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: var(--color-gray-900);
+    z-index: 1000;
   }
 }

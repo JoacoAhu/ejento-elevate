@@ -34,7 +34,7 @@ import './PromptPlayground.scss';
 const PromptPlayground = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { urlParams } = useAuth(); // Get URL params from auth context
+    const { urlParams, technician } = useAuth();
 
     // State management
     const [activeTab, setActiveTab] = useState('prompts');
@@ -206,12 +206,17 @@ const PromptPlayground = () => {
             return;
         }
 
+        const technicianName = technician?.name || technician?.firstName || 'Unknown Technician';
+
         setLoading(true);
         try {
             const response = await fetch('http://localhost:8000/api/prompts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newPrompt)
+                body: JSON.stringify({
+                    ...newPrompt,
+                    createdBy: technicianName
+                })
             });
 
             const result = await response.json();
@@ -228,6 +233,7 @@ const PromptPlayground = () => {
             setLoading(false);
         }
     };
+
 
     const handleTestPrompt = async () => {
         if (!selectedReview) return;
@@ -387,7 +393,10 @@ const PromptPlayground = () => {
                                 <p className="prompt-item__description">{prompt.description}</p>
                                 <div className="prompt-item__meta">
                                     <span className="prompt-item__meta-type">{prompt.type}</span>
-                                    <span>v{prompt.version}</span>
+                                    <span className="prompt-item__meta-creator">
+                                    <User size={12} />
+                                        {prompt.createdBy}
+                                </span>
                                 </div>
                             </div>
                         ))}

@@ -1836,9 +1836,6 @@ async function initializeDatabase() {
         await sequelize.authenticate();
         console.log('✅ Database connection established successfully.');
 
-        await sequelize.sync({ alter: true });
-        console.log('✅ Database models synchronized.');
-
         const clientCount = await Client.count();
         if (clientCount === 0) {
             await createSampleData();

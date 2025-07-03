@@ -71,7 +71,11 @@ module.exports = (sequelize, DataTypes) => {
         },
         createdBy: {
             type: DataTypes.STRING,
-            defaultValue: 'admin'
+            allowNull: false,
+            validate: {
+                notEmpty: true,
+                len: [1, 64]
+            }
         },
         description: {
             type: DataTypes.TEXT,
@@ -86,6 +90,9 @@ module.exports = (sequelize, DataTypes) => {
             },
             {
                 fields: ['isActive']
+            },
+            {
+                fields: ['createdBy']
             }
         ]
     });
