@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Edit3,
     Save,
@@ -27,9 +28,14 @@ import {
     ArrowLeft,
     Home
 } from 'lucide-react';
+import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './PromptPlayground.scss';
 
 const PromptPlayground = () => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { urlParams } = useAuth(); // Get URL params from auth context
+
     // State management
     const [activeTab, setActiveTab] = useState('prompts');
     const [prompts, setPrompts] = useState([]);
@@ -69,8 +75,23 @@ const PromptPlayground = () => {
         description: ''
     });
 
+    // Helper function to build URLs with preserved parameters
+    const buildUrlWithParams = (path) => {
+        const searchParams = new URLSearchParams();
+
+        // Preserve Ejento parameters
+        if (urlParams.location) searchParams.set('location', urlParams.location);
+        if (urlParams.user) searchParams.set('user', urlParams.user);
+        if (urlParams.token) searchParams.set('token', urlParams.token);
+
+        const queryString = searchParams.toString();
+        return queryString ? `${path}?${queryString}` : path;
+    };
+
     const handleReturnToMain = () => {
-        window.location.href = '/';
+        // Navigate back to dashboard with preserved URL parameters
+        const dashboardUrl = buildUrlWithParams('/dashboard');
+        navigate(dashboardUrl);
     };
 
     // Fetch prompts on component mount
@@ -659,7 +680,7 @@ const PromptPlayground = () => {
             <div className="prompt-playground__container">
                 {/* Header */}
                 <div className="prompt-playground__header">
-                    <div className="prompt-playground__header-content">  {/* ✅ Add this wrapper */}
+                    <div className="prompt-playground__header-content">
                         <h1>Prompt Playground</h1>
                         <p>Create, edit, and test AI prompts for review responses</p>
                     </div>

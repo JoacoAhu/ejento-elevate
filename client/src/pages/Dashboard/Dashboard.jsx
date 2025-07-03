@@ -29,7 +29,7 @@ import './Dashboard.scss';
 import {dashboardAPI, reviewsAPI, techniciansAPI} from "../../utils/api.js";
 
 const Dashboard = () => {
-    const { technician, logout, userRole } = useAuth();
+    const { technician, logout, userRole, urlParams } = useAuth();
     const navigate = useNavigate();
     const [reviews, setReviews] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +56,19 @@ const Dashboard = () => {
 
     const menuRef = useRef(null);
     const profileDropdownRef = useRef(null);
+
+    // Helper function to build URLs with preserved parameters
+    const buildUrlWithParams = (path) => {
+        const searchParams = new URLSearchParams();
+
+        // Preserve Ejento parameters
+        if (urlParams.location) searchParams.set('location', urlParams.location);
+        if (urlParams.user) searchParams.set('user', urlParams.user);
+        if (urlParams.token) searchParams.set('token', urlParams.token);
+
+        const queryString = searchParams.toString();
+        return queryString ? `${path}?${queryString}` : path;
+    };
 
     useEffect(() => {
         fetchDashboardData();
@@ -220,7 +233,9 @@ const Dashboard = () => {
     };
 
     const handleChangePassword = () => {
-        navigate('/change-password');
+        // Navigate to change password with preserved URL parameters
+        const changePasswordUrl = buildUrlWithParams('/change-password');
+        navigate(changePasswordUrl);
     };
 
     const toggleProfileDropdown = () => {
@@ -410,11 +425,12 @@ const Dashboard = () => {
                     <div className="persona-edit-form__header">
                         <button
                             className="persona-edit-form__close"
-                            onClick={() => setEditingPersona(null)}
+                            onClick={() => {
+                                const promptsUrl = buildUrlWithParams('/admin/prompts');
+                                navigate(promptsUrl);
+                            }}
                         >
-                            <a href="/admin/prompts" className="nav-link">
-                                Prompt Management
-                            </a>
+                            Prompt Management
                         </button>
                     </div>
 

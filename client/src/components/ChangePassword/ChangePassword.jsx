@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Lock,
     Eye,
@@ -14,7 +15,10 @@ import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './ChangePassword.scss';
 
 const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) => {
-    const { technician, updateTechnician, changePassword } = useAuth();
+    const { technician, updateTechnician, changePassword, urlParams } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+
     const [formData, setFormData] = useState({
         currentPassword: '',
         newPassword: '',
@@ -28,6 +32,19 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
         new: false,
         confirm: false
     });
+
+    // Helper function to build URLs with preserved parameters
+    const buildUrlWithParams = (path) => {
+        const searchParams = new URLSearchParams();
+
+        // Preserve Ejento parameters
+        if (urlParams.location) searchParams.set('location', urlParams.location);
+        if (urlParams.user) searchParams.set('user', urlParams.user);
+        if (urlParams.token) searchParams.set('token', urlParams.token);
+
+        const queryString = searchParams.toString();
+        return queryString ? `${path}?${queryString}` : path;
+    };
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -46,7 +63,7 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
     };
 
     const validateForm = () => {
-        if (!technician.isFirstLogin && !formData.currentPassword) {
+        if (!technician?.isFirstLogin && !formData.currentPassword) {
             return 'Current password is required';
         }
 
@@ -84,12 +101,14 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
             if (result.success) {
                 setSuccess(true);
 
-                // Redirect after a short delay
+                // Redirect after a short delay with preserved URL parameters
                 setTimeout(() => {
                     if (onPasswordChanged) {
                         onPasswordChanged();
                     } else {
-                        window.location.href = '/dashboard';
+                        // Navigate to dashboard with preserved parameters
+                        const dashboardUrl = buildUrlWithParams('/dashboard');
+                        navigate(dashboardUrl);
                     }
                 }, 2000);
             } else {
@@ -100,6 +119,16 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
             setError(error.message || 'Connection error. Please try again.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleCancel = () => {
+        if (onCancel) {
+            onCancel();
+        } else {
+            // Navigate back to dashboard with preserved parameters
+            const dashboardUrl = buildUrlWithParams('/dashboard');
+            navigate(dashboardUrl);
         }
     };
 
@@ -265,10 +294,10 @@ const ChangePassword = ({ onPasswordChanged, onCancel, isFirstTime = false }) =>
                                 )}
                             </button>
 
-                            {onCancel && !technician?.mustChangePassword && (
+                            {!technician?.mustChangePassword && (
                                 <button
                                     type="button"
-                                    onClick={onCancel}
+                                    onClick={handleCancel}
                                     className="change-password__button change-password__button--secondary"
                                     disabled={loading}
                                 >

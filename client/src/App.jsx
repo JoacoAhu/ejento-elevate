@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UnifiedAuthProvider, useAuth } from './context/UnifiedAuthContext.jsx';
 import Dashboard from './pages/Dashboard';
 import PromptPlayground from "./components/promptPlayground/PromptPlayground.jsx";
+import ChangePassword from "./components/changePassword/ChangePassword.jsx";
 import './App.css';
 import './styles/main.scss';
 import LoadingSpinner from "./components/LoadingSpinner/LoadingSpinner.jsx";
@@ -69,6 +70,16 @@ const AppContent = () => {
                     element={
                         <ProtectedRoute>
                             <Dashboard />
+                        </ProtectedRoute>
+                    }
+                />
+
+                {/* Change Password Route */}
+                <Route
+                    path="/change-password"
+                    element={
+                        <ProtectedRoute>
+                            <ChangePassword />
                         </ProtectedRoute>
                     }
                 />
