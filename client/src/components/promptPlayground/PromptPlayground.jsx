@@ -1,32 +1,11 @@
+// Replace the entire PromptPlayground component with this working version:
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-    Edit3,
-    Save,
-    Play,
-    RotateCcw,
-    Copy,
-    Check,
-    Settings,
-    TestTube,
-    FileText,
-    Zap,
-    Eye,
-    EyeOff,
-    Clock,
-    User,
-    Star,
-    MessageSquare,
-    Sparkles,
-    ChevronDown,
-    ChevronRight,
-    AlertCircle,
-    CheckCircle,
-    Plus,
-    Trash2,
-    ArrowLeft,
-    Home
+    Edit3, Save, TestTube, FileText, Zap, Eye, EyeOff, Clock, User, Star,
+    MessageSquare, Sparkles, CheckCircle, Plus, ArrowLeft, Home, AlertCircle, Copy, Check
 } from 'lucide-react';
 import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './PromptPlayground.scss';
@@ -34,7 +13,12 @@ import './PromptPlayground.scss';
 const PromptPlayground = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { urlParams, technician } = useAuth();
+    const { urlParams, technician, userRole } = useAuth();
+
+    // Debug authentication
+    useEffect(() => {
+        console.log('🔍 DEBUG Auth:', { urlParams, technician, userRole });
+    }, [urlParams, technician, userRole]);
 
     // State management
     const [activeTab, setActiveTab] = useState('prompts');
@@ -44,15 +28,7 @@ const PromptPlayground = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(false);
     const [testResults, setTestResults] = useState(null);
-
-    // Testing state
     const [selectedReview, setSelectedReview] = useState(null);
-    const [customReview, setCustomReview] = useState({
-        customerName: 'John Doe',
-        rating: 5,
-        text: 'Great service! Very professional and thorough.',
-        sentiment: 'positive'
-    });
     const [selectedTechnician, setSelectedTechnician] = useState({
         name: 'Mike Johnson',
         persona: {
@@ -62,65 +38,66 @@ const PromptPlayground = () => {
         }
     });
     const [sampleReviews, setSampleReviews] = useState([]);
-    const [responsePrompt, setResponsePrompt] = useState(''); // Only response prompt needed
+    const [responsePrompt, setResponsePrompt] = useState('');
     const [showVariables, setShowVariables] = useState(false);
     const [copied, setCopied] = useState(false);
-
-    // Create new prompt state
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [newPrompt, setNewPrompt] = useState({
-        name: '',
-        type: 'response_generation', // Fixed to response_generation only
-        content: '',
-        description: ''
+        name: '', type: 'response_generation', content: '', description: ''
     });
 
-    // Helper function to build URLs with preserved parameters
+    // Helper functions
+    const canEditPrompt = (prompt) => {
+        if (userRole === 'admin' || userRole === 'manager') return true;
+        if (userRole === 'technician') return prompt.createdBy === technician?.name;
+        return false;
+    };
+
+    const isSystemPrompt = (prompt) => ['system', 'admin', 'System Administrator'].includes(prompt.createdBy);
+    const getTechnicianDisplayName = (tech) => tech?.name || tech?.firstName || 'Unknown Technician';
+
     const buildUrlWithParams = (path) => {
         const searchParams = new URLSearchParams();
-
-        // Preserve Ejento parameters
         if (urlParams.location) searchParams.set('location', urlParams.location);
         if (urlParams.user) searchParams.set('user', urlParams.user);
         if (urlParams.token) searchParams.set('token', urlParams.token);
-
         const queryString = searchParams.toString();
         return queryString ? `${path}?${queryString}` : path;
     };
 
     const handleReturnToMain = () => {
-        // Navigate back to dashboard with preserved URL parameters
         const dashboardUrl = buildUrlWithParams('/dashboard');
         navigate(dashboardUrl);
     };
 
-    // Fetch prompts on component mount
-    useEffect(() => {
-        fetchPrompts();
-        fetchSampleReviews();
-    }, []);
-
-    // Load active prompts when tab changes to testing
-    useEffect(() => {
-        if (activeTab === 'testing') {
-            loadActivePrompts();
-        }
-    }, [activeTab]);
-
+    // API Functions - Using original endpoints with role-based frontend logic
     const fetchPrompts = async () => {
         try {
-            // Only fetch response_generation prompts
+            console.log('📝 Fetching prompts...');
             const response = await fetch('http://localhost:8000/api/prompts?type=response_generation');
             const result = await response.json();
+            console.log('📝 Prompts result:', result);
+
             if (result.success) {
-                setPrompts(result.data);
-                if (result.data.length > 0 && !selectedPrompt) {
-                    setSelectedPrompt(result.data[0]);
-                    setEditingPrompt(result.data[0].content);
+                // Apply client-side filtering based on role
+                let filteredPrompts = result.data;
+
+                if (userRole === 'technician' && technician?.name) {
+                    // Filter to show only user's prompts and system prompts
+                    filteredPrompts = result.data.filter(prompt =>
+                        prompt.createdBy === technician.name ||
+                        ['system', 'admin', 'System Administrator'].includes(prompt.createdBy)
+                    );
+                }
+
+                setPrompts(filteredPrompts);
+                if (filteredPrompts.length > 0 && !selectedPrompt) {
+                    setSelectedPrompt(filteredPrompts[0]);
+                    setEditingPrompt(filteredPrompts[0].content);
                 }
             }
         } catch (error) {
-            console.error('Error fetching prompts:', error);
+            console.error('❌ Error fetching prompts:', error);
         }
     };
 
@@ -141,10 +118,8 @@ const PromptPlayground = () => {
 
     const loadActivePrompts = async () => {
         try {
-            // Only load response_generation prompt
             const response = await fetch('http://localhost:8000/api/prompts/active/response_generation');
             const result = await response.json();
-
             if (result.success) {
                 setResponsePrompt(result.data.content);
             }
@@ -153,17 +128,56 @@ const PromptPlayground = () => {
         }
     };
 
+    const handleCreatePrompt = async () => {
+        if (!newPrompt.name || !newPrompt.content) {
+            alert('Name and content are required');
+            return;
+        }
+
+        const technicianName = getTechnicianDisplayName(technician);
+        setLoading(true);
+
+        try {
+            const response = await fetch('http://localhost:8000/api/prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...newPrompt,
+                    createdBy: technicianName
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                await fetchPrompts();
+                setShowCreateForm(false);
+                setNewPrompt({ name: '', type: 'response_generation', content: '', description: '' });
+                alert(`Prompt created successfully by ${technicianName}!`);
+            } else {
+                alert(result.message || 'Error creating prompt');
+            }
+        } catch (error) {
+            console.error('Error creating prompt:', error);
+            alert(`Error creating prompt: ${error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSavePrompt = async () => {
         if (!selectedPrompt) return;
+
+        if (!canEditPrompt(selectedPrompt)) {
+            alert('You can only edit prompts that you created');
+            return;
+        }
 
         setLoading(true);
         try {
             const response = await fetch(`http://localhost:8000/api/prompts/${selectedPrompt.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: editingPrompt
-                })
+                body: JSON.stringify({ content: editingPrompt })
             });
 
             const result = await response.json();
@@ -171,6 +185,8 @@ const PromptPlayground = () => {
                 await fetchPrompts();
                 setIsEditing(false);
                 alert('Prompt saved successfully!');
+            } else {
+                alert(result.message || 'Error saving prompt');
             }
         } catch (error) {
             console.error('Error saving prompt:', error);
@@ -191,6 +207,8 @@ const PromptPlayground = () => {
             if (result.success) {
                 await fetchPrompts();
                 alert('Prompt activated successfully!');
+            } else {
+                alert(result.message || 'Error activating prompt');
             }
         } catch (error) {
             console.error('Error activating prompt:', error);
@@ -199,41 +217,6 @@ const PromptPlayground = () => {
             setLoading(false);
         }
     };
-
-    const handleCreatePrompt = async () => {
-        if (!newPrompt.name || !newPrompt.content) {
-            alert('Name and content are required');
-            return;
-        }
-
-        const technicianName = technician?.name || technician?.firstName || 'Unknown Technician';
-
-        setLoading(true);
-        try {
-            const response = await fetch('http://localhost:8000/api/prompts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...newPrompt,
-                    createdBy: technicianName
-                })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-                await fetchPrompts();
-                setShowCreateForm(false);
-                setNewPrompt({ name: '', type: 'response_generation', content: '', description: '' });
-                alert('Prompt created successfully!');
-            }
-        } catch (error) {
-            console.error('Error creating prompt:', error);
-            alert('Error creating prompt');
-        } finally {
-            setLoading(false);
-        }
-    };
-
 
     const handleTestPrompt = async () => {
         if (!selectedReview) return;
@@ -269,6 +252,18 @@ const PromptPlayground = () => {
         setTimeout(() => setCopied(false), 2000);
     };
 
+    // Effects
+    useEffect(() => {
+        fetchPrompts();
+        fetchSampleReviews();
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'testing') {
+            loadActivePrompts();
+        }
+    }, [activeTab]);
+
     const promptVariables = [
         { name: '{{customerName}}', description: 'Customer name from review' },
         { name: '{{rating}}', description: 'Review rating (1-5)' },
@@ -282,6 +277,35 @@ const PromptPlayground = () => {
         { name: '{{ratingGuidance}}', description: 'Guidance based on rating (auto-generated)' }
     ];
 
+    // Show loading if no auth data yet
+    if (!technician && urlParams.user) {
+        return (
+            <div className="prompt-playground">
+                <div className="prompt-playground__loading">
+                    <div className="prompt-playground__loading-spinner"></div>
+                    <p>Loading technician information...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Show error if no technician data
+    if (!technician) {
+        return (
+            <div className="prompt-playground">
+                <div className="prompt-playground__error">
+                    <AlertCircle size={48} />
+                    <h2>Authentication Required</h2>
+                    <p>Unable to load technician information. Please access this page through Ejento.</p>
+                    <button onClick={handleReturnToMain} className="prompt-playground__return-btn">
+                        <Home size={16} />
+                        Return to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     const renderPromptManagement = () => (
         <div className="prompt-management">
             {/* Header */}
@@ -289,6 +313,11 @@ const PromptPlayground = () => {
                 <div className="prompt-management__header-content">
                     <h2>Prompt Management</h2>
                     <p>Manage and edit AI prompts for response generation</p>
+                    {userRole === 'technician' && (
+                        <div className="prompt-management__role-notice">
+                            <span>You can see system prompts and your own prompts. Only admins can activate prompts.</span>
+                        </div>
+                    )}
                 </div>
                 <button
                     onClick={() => setShowCreateForm(true)}
@@ -368,6 +397,13 @@ const PromptPlayground = () => {
                 <div className="prompt-list">
                     <div className="prompt-list__header">
                         <h3>Available Prompts</h3>
+                        {/* Show current user info */}
+                        {technician && (
+                            <div className="prompt-list__current-user">
+                                <User size={14} />
+                                <span>{getTechnicianDisplayName(technician)} ({userRole})</span>
+                            </div>
+                        )}
                     </div>
                     <div className="prompt-list__items">
                         {prompts.map((prompt) => (
@@ -375,7 +411,7 @@ const PromptPlayground = () => {
                                 key={prompt.id}
                                 className={`prompt-item ${
                                     selectedPrompt?.id === prompt.id ? 'prompt-item--selected' : ''
-                                }`}
+                                } ${isSystemPrompt(prompt) ? 'prompt-item--system' : ''}`}
                                 onClick={() => {
                                     setSelectedPrompt(prompt);
                                     setEditingPrompt(prompt.content);
@@ -383,7 +419,12 @@ const PromptPlayground = () => {
                                 }}
                             >
                                 <div className="prompt-item__header">
-                                    <h4>{prompt.name}</h4>
+                                    <h4>
+                                        {prompt.name}
+                                        {isSystemPrompt(prompt) && (
+                                            <span className="prompt-item__system-badge">System</span>
+                                        )}
+                                    </h4>
                                     {prompt.isActive && (
                                         <span className="prompt-item__active-badge">
                                             Active
@@ -394,9 +435,22 @@ const PromptPlayground = () => {
                                 <div className="prompt-item__meta">
                                     <span className="prompt-item__meta-type">{prompt.type}</span>
                                     <span className="prompt-item__meta-creator">
-                                    <User size={12} />
+                                        <User size={12} />
                                         {prompt.createdBy}
-                                </span>
+                                    </span>
+                                    {/* Show if user can edit this prompt */}
+                                    {!canEditPrompt(prompt) && (
+                                        <span className="prompt-item__meta-readonly">
+                                            View Only
+                                        </span>
+                                    )}
+                                    {/* Add creation date if available */}
+                                    {prompt.createdAt && (
+                                        <span className="prompt-item__meta-date">
+                                            <Clock size={12} />
+                                            {new Date(prompt.createdAt).toLocaleDateString()}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -408,7 +462,9 @@ const PromptPlayground = () => {
                     {selectedPrompt && (
                         <>
                             <div className="prompt-editor__header">
-                                <h3>Edit Prompt</h3>
+                                <h3>
+                                    {canEditPrompt(selectedPrompt) ? 'Edit Prompt' : 'View Prompt'}
+                                </h3>
                                 <div className="prompt-editor__actions">
                                     {!selectedPrompt.isActive && (
                                         <button
@@ -420,34 +476,43 @@ const PromptPlayground = () => {
                                             Activate
                                         </button>
                                     )}
-                                    {isEditing ? (
+                                    {canEditPrompt(selectedPrompt) && (
                                         <>
-                                            <button
-                                                onClick={handleSavePrompt}
-                                                disabled={loading}
-                                                className="prompt-editor__save-btn"
-                                            >
-                                                <Save size={16} />
-                                                Save
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setIsEditing(false);
-                                                    setEditingPrompt(selectedPrompt.content);
-                                                }}
-                                                className="prompt-editor__cancel-btn"
-                                            >
-                                                Cancel
-                                            </button>
+                                            {isEditing ? (
+                                                <>
+                                                    <button
+                                                        onClick={handleSavePrompt}
+                                                        disabled={loading}
+                                                        className="prompt-editor__save-btn"
+                                                    >
+                                                        <Save size={16} />
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setIsEditing(false);
+                                                            setEditingPrompt(selectedPrompt.content);
+                                                        }}
+                                                        className="prompt-editor__cancel-btn"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setIsEditing(true)}
+                                                    className="prompt-editor__edit-btn"
+                                                >
+                                                    <Edit3 size={16} />
+                                                    Edit
+                                                </button>
+                                            )}
                                         </>
-                                    ) : (
-                                        <button
-                                            onClick={() => setIsEditing(true)}
-                                            className="prompt-editor__edit-btn"
-                                        >
-                                            <Edit3 size={16} />
-                                            Edit
-                                        </button>
+                                    )}
+                                    {!canEditPrompt(selectedPrompt) && (
+                                        <span className="prompt-editor__readonly-notice">
+                                            {isSystemPrompt(selectedPrompt) ? 'System prompt' : 'Created by another user'}
+                                        </span>
                                     )}
                                 </div>
                             </div>
@@ -482,10 +547,10 @@ const PromptPlayground = () => {
                                     <textarea
                                         value={editingPrompt}
                                         onChange={(e) => setEditingPrompt(e.target.value)}
-                                        disabled={!isEditing}
+                                        disabled={!isEditing || !canEditPrompt(selectedPrompt)}
                                         rows={20}
                                         className={`editor-container__textarea ${
-                                            !isEditing ? 'editor-container__textarea--disabled' : ''
+                                            !isEditing || !canEditPrompt(selectedPrompt) ? 'editor-container__textarea--disabled' : ''
                                         }`}
                                     />
                                 </div>
@@ -683,6 +748,23 @@ const PromptPlayground = () => {
             </div>
         </div>
     );
+
+    // Add loading state check at the beginning of your component render
+    if (!technician) {
+        return (
+            <div className="prompt-playground">
+                <div className="prompt-playground__error">
+                    <AlertCircle size={48} />
+                    <h2>Authentication Required</h2>
+                    <p>Unable to load technician information. Please access this page through Ejento.</p>
+                    <button onClick={handleReturnToMain} className="prompt-playground__return-btn">
+                        <Home size={16} />
+                        Return to Dashboard
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="prompt-playground">

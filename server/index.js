@@ -1555,7 +1555,7 @@ app.post('/api/admin/ejento/generate-url', requireAdminRole, async (req, res) =>
 });
 
 // =============================================================================
-// PROMPT MANAGEMENT ENDPOINTS
+// PROMPT MANAGEMENT ENDPOINTS (Original - for backward compatibility)
 // =============================================================================
 
 // Get all prompts
@@ -1703,6 +1703,233 @@ app.put('/api/prompts/:id', async (req, res) => {
 app.post('/api/prompts/:id/activate', async (req, res) => {
     try {
         const { id } = req.params;
+
+        const prompt = await Prompt.activatePrompt(id);
+        openaiService.clearPromptCache();
+
+        res.json({
+            success: true,
+            message: `Prompt activated successfully for type: ${prompt.type}`,
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error activating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to activate prompt',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
+// EJENTO PROMPT MANAGEMENT ENDPOINTS (Role-Based)
+// =============================================================================
+
+// Get prompts with Ejento authentication and role-based filtering
+app.get('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
+    try {
+        const { type } = req.query;
+        const userRole = req.ejento.userRole;
+        const technicianName = req.ejento.technician.name;
+
+        // Build base where clause
+        let whereClause = {};
+        if (type) {
+            whereClause.type = type;
+        }
+
+        // Apply role-based filtering
+        if (userRole === 'technician') {
+            // Technicians can only see:
+            // 1. Their own prompts (createdBy matches their name)
+            // 2. System prompts (createdBy = 'system', 'admin', or 'System Administrator')
+            whereClause[Op.or] = [
+                { createdBy: technicianName },
+                { createdBy: { [Op.in]: ['system', 'admin', 'System Administrator'] } }
+            ];
+        }
+        // Admins and managers can see all prompts (no additional filtering needed)
+
+        const prompts = await Prompt.findAll({
+            where: whereClause,
+            order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: prompts,
+            total: prompts.length,
+            userRole: userRole,
+            filteredFor: userRole === 'technician' ? technicianName : 'all'
+        });
+    } catch (error) {
+        console.error('Error fetching prompts:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch prompts',
+            error: error.message
+        });
+    }
+});
+
+// Get active prompt by type with Ejento authentication
+app.get('/api/ejento/prompts/active/:type', authenticateEjentoUser, async (req, res) => {
+    try {
+        const { type } = req.params;
+        const userRole = req.ejento.userRole;
+        const technicianName = req.ejento.technician.name;
+
+        // Build where clause for active prompt
+        let whereClause = {
+            type: type,
+            isActive: true
+        };
+
+        // Apply role-based filtering for active prompts
+        if (userRole === 'technician') {
+            // Technicians can only see active prompts they created or system prompts
+            whereClause[Op.or] = [
+                { createdBy: technicianName },
+                { createdBy: { [Op.in]: ['system', 'admin', 'System Administrator'] } }
+            ];
+        }
+
+        const prompt = await Prompt.findOne({
+            where: whereClause
+        });
+
+        if (!prompt) {
+            return res.status(404).json({
+                success: false,
+                message: `No active prompt found for type: ${type} that you have access to`
+            });
+        }
+
+        res.json({
+            success: true,
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error fetching active prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch active prompt',
+            error: error.message
+        });
+    }
+});
+
+// Create prompt with Ejento authentication
+app.post('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
+    try {
+        const { name, type, content, description } = req.body;
+        const technicianName = req.ejento.technician.name;
+
+        if (!name || !type || !content) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, type, and content are required'
+            });
+        }
+
+        const lastPrompt = await Prompt.findOne({
+            where: { type },
+            order: [['version', 'DESC']]
+        });
+
+        const nextVersion = lastPrompt ? lastPrompt.version + 1 : 1;
+
+        const prompt = await Prompt.create({
+            name,
+            type,
+            content,
+            description,
+            version: nextVersion,
+            createdBy: technicianName, // Use the authenticated technician's name
+            isActive: false
+        });
+
+        res.json({
+            success: true,
+            message: 'Prompt created successfully',
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error creating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create prompt',
+            error: error.message
+        });
+    }
+});
+
+// Update prompt with role-based permissions
+app.put('/api/ejento/prompts/:id', authenticateEjentoUser, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, content, description } = req.body;
+        const userRole = req.ejento.userRole;
+        const technicianName = req.ejento.technician.name;
+
+        const prompt = await Prompt.findByPk(id);
+
+        if (!prompt) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prompt not found'
+            });
+        }
+
+        // Check permissions
+        if (userRole === 'technician') {
+            // Technicians can only edit their own prompts
+            if (prompt.createdBy !== technicianName) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You can only edit prompts that you created'
+                });
+            }
+        }
+        // Admins and managers can edit any prompt
+
+        await prompt.update({
+            name: name || prompt.name,
+            content: content || prompt.content,
+            description: description || prompt.description
+        });
+
+        openaiService.clearPromptCache();
+
+        res.json({
+            success: true,
+            message: 'Prompt updated successfully',
+            data: prompt
+        });
+    } catch (error) {
+        console.error('Error updating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update prompt',
+            error: error.message
+        });
+    }
+});
+
+// Activate prompt with role-based permissions
+app.post('/api/ejento/prompts/:id/activate', authenticateEjentoUser, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userRole = req.ejento.userRole;
+
+        // Only admins and managers can activate prompts
+        if (userRole === 'technician') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only administrators and managers can activate prompts'
+            });
+        }
 
         const prompt = await Prompt.activatePrompt(id);
         openaiService.clearPromptCache();
@@ -2044,8 +2271,9 @@ async function createDefaultPrompts() {
     try {
         const promptCount = await Prompt.count();
         if (promptCount === 0) {
-            console.log('🌱 Creating default prompt...');
+            console.log('🌱 Creating default prompts...');
 
+            // Create a system prompt that everyone can see
             await Prompt.create({
                 name: 'Default System Prompt',
                 type: 'response_generation',
@@ -2097,13 +2325,13 @@ RESPONSE REQUIREMENTS:
 Generate only the response text, no additional formatting or explanations.`,
                 isActive: true,
                 createdBy: 'system',
-                description: 'Combined system and response generation prompt for creating review responses using technician personas'
+                description: 'Default system prompt visible to all users for creating review responses using technician personas'
             });
 
-            console.log('✅ Default prompt created successfully.');
+            console.log('✅ Default prompts created successfully.');
         }
     } catch (error) {
-        console.error('❌ Error creating default prompt:', error);
+        console.error('❌ Error creating default prompts:', error);
     }
 }
 
