@@ -430,7 +430,7 @@ const PromptPlayground = () => {
                     </h4>
                     {isActive && (
                         <span className="prompt-item__active-badge">
-                            Active for You
+                            Active
                         </span>
                     )}
                 </div>

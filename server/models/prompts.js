@@ -46,6 +46,19 @@ module.exports = (sequelize, DataTypes) => {
                     transaction
                 });
 
+                // ALWAYS clear isActive flag on all personal prompts for this technician
+                // This ensures personal prompts are deactivated when system prompts are activated
+                await this.update(
+                    { isActive: false },
+                    {
+                        where: {
+                            type: promptToActivate.type,
+                            technicianId: technicianId
+                        },
+                        transaction
+                    }
+                );
+
                 // Create new activation record for this technician
                 await TechnicianActivePrompt.create({
                     technicianId: technicianId,
@@ -54,22 +67,9 @@ module.exports = (sequelize, DataTypes) => {
                     isActive: true
                 }, { transaction });
 
-                // For personal prompts, also update the prompt's isActive field
+                // For personal prompts, set the specific prompt as active
                 if (promptToActivate.technicianId === technicianId) {
                     await promptToActivate.update({ isActive: true }, { transaction });
-
-                    // Deactivate other personal prompts for this technician
-                    await this.update(
-                        { isActive: false },
-                        {
-                            where: {
-                                type: promptToActivate.type,
-                                technicianId: technicianId,
-                                id: { [sequelize.Sequelize.Op.ne]: promptId }
-                            },
-                            transaction
-                        }
-                    );
                 }
 
                 await transaction.commit();
