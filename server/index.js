@@ -3,7 +3,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { Sequelize, DataTypes, Op } = require('sequelize');
 require('dotenv').config();
+const cookieParser = require('cookie-parser');
 const { authenticateEjentoUser, generateEjentoToken, requireAdminRole, requireManagerRole } = require('./middleware/ejentoAuth');
+const { authenticateToken, generateToken, optionalAuth } = require('./middleware/auth');
 
 // Import models from the models directory
 const db = require('./models');
@@ -25,6 +27,7 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+app.use(cookieParser());
 
 // Health check
 app.get('/health', async (req, res) => {
@@ -67,6 +70,219 @@ app.get('/api/ai/test', async (req, res) => {
 });
 
 // =============================================================================
+// AUTHENTICATION ENDPOINTS (JWT)
+// =============================================================================
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { crmCode, password } = req.body;
+
+        if (!crmCode || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'CRM code and password are required'
+            });
+        }
+
+        // Find technician by CRM code
+        const technician = await Technician.findOne({
+            where: { crmCode: crmCode.toUpperCase(), isActive: true },
+            include: [
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        if (!technician) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid CRM code or password'
+            });
+        }
+
+        // If first login and no password set, generate one
+        if (technician.isFirstLogin && !technician.hashedPassword) {
+            const generatedPassword = await technician.generateFirstTimePassword();
+            await technician.save();
+
+            return res.json({
+                success: true,
+                firstLogin: true,
+                temporaryPassword: generatedPassword,
+                message: 'First login detected. Use this temporary password to continue.'
+            });
+        }
+
+        // Check password
+        const isValidPassword = await technician.checkPassword(password);
+        if (!isValidPassword) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid CRM code or password'
+            });
+        }
+
+        // Update last login
+        technician.lastLoginAt = new Date();
+        await technician.save();
+
+        // Generate token
+        const token = generateToken(technician.id);
+
+        // Set cookie
+        res.cookie('authToken', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        });
+
+        res.json({
+            success: true,
+            message: 'Login successful',
+            technician: {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                mustChangePassword: technician.mustChangePassword,
+                client: technician.client
+            },
+            token
+        });
+
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Login failed',
+            error: error.message
+        });
+    }
+});
+
+// Change password endpoint
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!newPassword || newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters long'
+            });
+        }
+
+        const technician = req.technician;
+
+        // Check current password (skip for first login)
+        if (!technician.isFirstLogin) {
+            const isValidPassword = await technician.checkPassword(currentPassword);
+            if (!isValidPassword) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Current password is incorrect'
+                });
+            }
+        }
+
+        // Set new password
+        await technician.setPassword(newPassword);
+        technician.mustChangePassword = false;
+        await technician.save();
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to change password',
+            error: error.message
+        });
+    }
+});
+
+// Get current user info
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+    try {
+        const technician = req.technician;
+
+        res.json({
+            success: true,
+            technician: {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                mustChangePassword: technician.mustChangePassword,
+                lastLoginAt: technician.lastLoginAt,
+                client: technician.client
+            }
+        });
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get user info',
+            error: error.message
+        });
+    }
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('authToken');
+    res.json({
+        success: true,
+        message: 'Logged out successfully'
+    });
+});
+
+// Admin endpoint to generate password for technician
+app.post('/api/admin/technicians/:crmCode/generate-password', async (req, res) => {
+    try {
+        const { crmCode } = req.params;
+
+        const technician = await Technician.findOne({
+            where: { crmCode: crmCode.toUpperCase() }
+        });
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: 'Technician not found'
+            });
+        }
+
+        const newPassword = await technician.generateFirstTimePassword();
+        await technician.save();
+
+        res.json({
+            success: true,
+            message: 'Password generated successfully',
+            crmCode: technician.crmCode,
+            temporaryPassword: newPassword
+        });
+
+    } catch (error) {
+        console.error('Generate password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate password',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
 // EJENTO AUTHENTICATION ENDPOINTS
 // =============================================================================
 
@@ -93,6 +309,251 @@ app.get('/api/auth/verify-ejento', authenticateEjentoUser, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Verification failed',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
+// TECHNICIAN ENDPOINTS
+// =============================================================================
+
+// Helper function to find technician by CRM code
+async function findTechnicianByCrmCode(crmCode) {
+    return await Technician.findOne({
+        where: { crmCode: crmCode, isActive: true },
+        include: [
+            {
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name']
+            }
+        ]
+    });
+}
+
+// Get technician by CRM code
+app.get('/api/technicians/crm/:crmCode', async (req, res) => {
+    try {
+        const { crmCode } = req.params;
+
+        const technician = await findTechnicianByCrmCode(crmCode);
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: 'Technician not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                id: technician.id,
+                name: technician.name,
+                email: technician.email,
+                crmCode: technician.crmCode,
+                persona: technician.persona,
+                isActive: technician.isActive,
+                client: technician.client
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching technician:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch technician',
+            error: error.message
+        });
+    }
+});
+
+// Update technician persona
+app.put('/api/technicians/crm/:crmCode/persona', async (req, res) => {
+    try {
+        const { crmCode } = req.params;
+        const { persona } = req.body;
+
+        if (!persona || typeof persona !== 'object') {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid persona data'
+            });
+        }
+
+        const technician = await findTechnicianByCrmCode(crmCode);
+
+        if (!technician) {
+            return res.status(404).json({
+                success: false,
+                message: 'Technician not found'
+            });
+        }
+
+        await technician.update({
+            persona: {
+                traits: persona.traits || [],
+                personality: persona.personality || '',
+                communicationStyle: persona.communicationStyle || ''
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Persona updated successfully',
+            data: {
+                crmCode: crmCode,
+                name: technician.name,
+                persona: technician.persona
+            }
+        });
+    } catch (error) {
+        console.error('Error updating technician persona:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update persona',
+            error: error.message
+        });
+    }
+});
+
+// Get all technicians
+app.get('/api/technicians', async (req, res) => {
+    try {
+        const technicians = await Technician.findAll({
+            where: { isActive: true },
+            include: [
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        res.json({
+            success: true,
+            data: technicians,
+            total: technicians.length
+        });
+    } catch (error) {
+        console.error('Error fetching technicians:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch technicians',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
+// DASHBOARD ENDPOINTS (JWT AUTH)
+// =============================================================================
+
+// Get dashboard stats (JWT auth)
+app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
+    try {
+        const technicianId = req.technician.id;
+
+        const totalReviews = await Review.count({
+            where: { technicianId: technicianId }
+        });
+
+        const averageRating = await Review.findAll({
+            where: { technicianId: technicianId },
+            attributes: [[sequelize.fn('AVG', sequelize.col('rating')), 'avgRating']]
+        });
+
+        const positiveReviews = await Review.count({
+            where: {
+                technicianId: technicianId,
+                rating: { [Op.gte]: 4 }
+            }
+        });
+
+        const totalRewards = positiveReviews * 5;
+
+        res.json({
+            success: true,
+            data: {
+                totalReviews: totalReviews,
+                averageRating: parseFloat(averageRating[0].dataValues.avgRating || 0).toFixed(1),
+                activeTechnicians: 1,
+                totalRewards: totalRewards
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch dashboard stats',
+            error: error.message
+        });
+    }
+});
+
+// Get top technicians (JWT auth)
+app.get('/api/dashboard/top-technicians', async (req, res) => {
+    try {
+        const technicians = await Technician.findAll({
+            where: { isActive: true },
+            include: [
+                {
+                    model: Review,
+                    as: 'reviews',
+                    required: false,
+                    attributes: ['id', 'rating', 'sentiment']
+                },
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ]
+        });
+
+        const technicianStats = technicians.map(technician => {
+            const reviews = technician.reviews || [];
+            const positiveReviews = reviews.filter(review => review.rating >= 4).length;
+            const totalReviews = reviews.length;
+            const avgRating = totalReviews > 0
+                ? (reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews).toFixed(1)
+                : 0;
+            const totalRewards = positiveReviews * 5;
+
+            return {
+                id: technician.id,
+                name: technician.name,
+                crmCode: technician.crmCode,
+                email: technician.email,
+                positiveReviews: positiveReviews,
+                totalReviews: totalReviews,
+                averageRating: parseFloat(avgRating),
+                totalRewards: totalRewards,
+                performanceScore: (positiveReviews * 0.7) + (parseFloat(avgRating) * 0.3)
+            };
+        });
+
+        const topTechnicians = technicianStats
+            .filter(tech => tech.totalReviews > 0)
+            .sort((a, b) => {
+                if (b.positiveReviews !== a.positiveReviews) {
+                    return b.positiveReviews - a.positiveReviews;
+                }
+                return b.averageRating - a.averageRating;
+            })
+            .slice(0, 5);
+
+        res.json({
+            success: true,
+            data: topTechnicians,
+            total: topTechnicians.length
+        });
+    } catch (error) {
+        console.error('Error fetching top technicians:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch top technicians',
             error: error.message
         });
     }
@@ -217,6 +678,347 @@ app.get('/api/ejento/dashboard/top-technicians', authenticateEjentoUser, async (
         res.status(500).json({
             success: false,
             message: 'Failed to fetch top technicians',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
+// REVIEWS ENDPOINTS (JWT AUTH)
+// =============================================================================
+
+// Get reviews (JWT auth)
+app.get('/api/reviews', authenticateToken, async (req, res) => {
+    try {
+        const technicianId = req.technician.id;
+
+        const reviews = await Review.findAll({
+            where: { technicianId: technicianId },
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona', 'crmCode']
+                },
+                {
+                    model: Client,
+                    as: 'client',
+                    attributes: ['id', 'name']
+                }
+            ],
+            order: [['reviewDate', 'DESC']]
+        });
+
+        const formattedReviews = reviews.map(review => ({
+            id: review.id,
+            customerName: review.customerName,
+            technicianName: review.technician ? review.technician.name : 'Unknown',
+            technicianCrmCode: review.technician ? review.technician.crmCode : null,
+            rating: review.rating,
+            text: review.text,
+            date: review.reviewDate,
+            sentiment: review.sentiment,
+            responded: review.status === 'responded' || review.status === 'published',
+            source: review.source,
+            responseText: review.responseText,
+            responseDate: review.responseDate,
+            status: review.status,
+            published: review.status === 'published',
+            publishedAt: review.publishedAt,
+            publishedBy: review.publishedBy,
+            publishedPlatform: review.publishedPlatform,
+            responseApprovalStatus: review.responseApprovalStatus || 'pending',
+            responseApprovedBy: review.responseApprovedBy,
+            responseApprovedAt: review.responseApprovedAt
+        }));
+
+        res.json({
+            success: true,
+            data: formattedReviews,
+            total: formattedReviews.length
+        });
+    } catch (error) {
+        console.error('Error fetching reviews:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch reviews',
+            error: error.message
+        });
+    }
+});
+
+// Generate AI response for review (JWT auth)
+app.post('/api/reviews/:id/generate-response', authenticateToken, async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+
+        const review = await Review.findByPk(reviewId, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona']
+                }
+            ]
+        });
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        const aiResult = await openaiService.generateReviewResponse(
+            {
+                customerName: review.customerName,
+                rating: review.rating,
+                text: review.text,
+                date: review.reviewDate,
+                sentiment: review.sentiment
+            },
+            review.technician
+        );
+
+        if (!aiResult.success) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to generate AI response',
+                error: aiResult.error,
+                fallbackResponse: aiResult.fallbackResponse
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+        const responseApprovalStatus = isNegative ? 'pending' : 'approved';
+
+        await review.update({
+            responseText: aiResult.response,
+            responseDate: new Date(),
+            status: 'responded',
+            responseApprovalStatus: responseApprovalStatus,
+            responseApprovedBy: isNegative ? null : 'system',
+            responseApprovedAt: isNegative ? null : new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'AI response generated successfully',
+            data: {
+                reviewId: reviewId,
+                response: aiResult.response,
+                usage: aiResult.usage,
+                responseApprovalStatus: responseApprovalStatus,
+                review: {
+                    id: review.id,
+                    responseText: aiResult.response,
+                    responseDate: new Date(),
+                    status: 'responded',
+                    responseApprovalStatus: responseApprovalStatus
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Generate response error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// Approve review response (JWT auth)
+app.post('/api/reviews/:id/approve-response', authenticateToken, async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+        const { approvedBy } = req.body;
+
+        const review = await Review.findByPk(reviewId);
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        if (!review.responseText) {
+            return res.status(400).json({
+                success: false,
+                message: 'No response to approve. Generate a response first.'
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+
+        if (!isNegative) {
+            return res.status(400).json({
+                success: false,
+                message: 'Only negative reviews require response approval'
+            });
+        }
+
+        await review.update({
+            responseApprovalStatus: 'approved',
+            responseApprovedBy: approvedBy,
+            responseApprovedAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'Response approved successfully',
+            data: {
+                reviewId: reviewId,
+                responseApprovalStatus: 'approved',
+                responseApprovedBy: approvedBy,
+                responseApprovedAt: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('Error approving response:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to approve response',
+            error: error.message
+        });
+    }
+});
+
+// Publish response to review platform (JWT auth)
+app.post('/api/reviews/:id/publish-response', authenticateToken, async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+
+        const review = await Review.findByPk(reviewId, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona']
+                }
+            ]
+        });
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        if (!review.responseText) {
+            return res.status(400).json({
+                success: false,
+                message: 'No response to publish. Generate a response first.'
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+
+        if (isNegative && review.responseApprovalStatus !== 'approved') {
+            return res.status(403).json({
+                success: false,
+                message: 'Negative review responses must be approved before publishing',
+                requiresResponseApproval: true,
+                responseApprovalStatus: review.responseApprovalStatus
+            });
+        }
+
+        const publishedAt = new Date();
+
+        await review.update({
+            status: 'published',
+            publishedAt: publishedAt,
+            publishedBy: 'system',
+            publishedPlatform: review.source
+        });
+
+        res.json({
+            success: true,
+            message: 'Response published successfully',
+            data: {
+                reviewId: reviewId,
+                platform: review.source,
+                responseText: review.responseText,
+                publishedAt: publishedAt.toISOString(),
+                customerName: review.customerName,
+                technician: review.technician ? review.technician.name : 'Unknown',
+                status: 'published'
+            }
+        });
+    } catch (error) {
+        console.error('Error publishing response:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to publish response',
+            error: error.message
+        });
+    }
+});
+
+// Add new review (for testing)
+app.post('/api/reviews', async (req, res) => {
+    try {
+        const { customerName, rating, text, technicianId } = req.body;
+
+        const client = await Client.findOne();
+
+        const review = await Review.create({
+            clientId: client.id,
+            technicianId: technicianId || null,
+            customerName: customerName,
+            rating: rating,
+            text: text,
+            reviewDate: new Date(),
+            status: 'pending',
+            source: 'manual'
+        });
+
+        res.json({
+            success: true,
+            message: 'Review created successfully',
+            data: review
+        });
+    } catch (error) {
+        console.error('Error creating review:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create review',
+            error: error.message
+        });
+    }
+});
+
+// Get published responses
+app.get('/api/reviews/published', async (req, res) => {
+    try {
+        const publishedReviews = await Review.findAll({
+            where: {
+                status: 'published',
+                responseText: { [Op.not]: null }
+            },
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email']
+                }
+            ],
+            order: [['publishedAt', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: publishedReviews,
+            total: publishedReviews.length,
+            message: `Found ${publishedReviews.length} published responses`
+        });
+    } catch (error) {
+        console.error('Error fetching published reviews:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch published reviews',
             error: error.message
         });
     }
@@ -391,8 +1193,8 @@ app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, as
     }
 });
 
-// Approve review response
-app.post('/api/reviews/:id/approve-response', async (req, res) => {
+// Approve review response (Ejento version)
+app.post('/api/reviews/:id/approve-response', authenticateEjentoUser, async (req, res) => {
     try {
         const reviewId = parseInt(req.params.id);
         const { approvedBy } = req.body;
@@ -414,10 +1216,10 @@ app.post('/api/reviews/:id/approve-response', async (req, res) => {
         }
 
         if (req.ejento.userRole === 'technician') {
-            return res.status(200).json({
+            return res.status(403).json({
                 success: false,
                 message: 'Must be approved by Administrator or Manager.',
-            })
+            });
         }
 
         const isNegative = review.rating <= 2 || review.sentiment === 'negative';
@@ -455,8 +1257,8 @@ app.post('/api/reviews/:id/approve-response', async (req, res) => {
     }
 });
 
-// Publish response to review platform
-app.post('/api/reviews/:id/publish-response', async (req, res) => {
+// Publish response to review platform (Ejento version)
+app.post('/api/reviews/:id/publish-response', authenticateEjentoUser, async (req, res) => {
     try {
         const reviewId = parseInt(req.params.id);
 
@@ -522,6 +1324,38 @@ app.post('/api/reviews/:id/publish-response', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to publish response',
+            error: error.message
+        });
+    }
+});
+
+// =============================================================================
+// AI ENDPOINTS
+// =============================================================================
+
+// Analyze sentiment of text
+app.post('/api/ai/analyze-sentiment', async (req, res) => {
+    try {
+        const { text } = req.body;
+
+        if (!text) {
+            return res.status(400).json({
+                success: false,
+                message: 'Text is required'
+            });
+        }
+
+        const sentiment = await openaiService.analyzeSentiment(text);
+
+        res.json({
+            success: true,
+            data: sentiment
+        });
+    } catch (error) {
+        console.error('Sentiment analysis error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Sentiment analysis failed',
             error: error.message
         });
     }

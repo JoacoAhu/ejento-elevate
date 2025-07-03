@@ -29,7 +29,7 @@ import './Dashboard.scss';
 import {dashboardAPI, reviewsAPI, techniciansAPI} from "../../utils/api.js";
 
 const Dashboard = () => {
-    const { technician, logout } = useAuth();
+    const { technician, logout, userRole } = useAuth();
     const navigate = useNavigate();
     const [reviews, setReviews] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -349,7 +349,7 @@ const Dashboard = () => {
 
     const renderAIResponseActions = (review) => {
         const isNegative = isNegativeReview(review);
-        const needsApproval = isNegative && review.responseApprovalStatus === 'pending';
+        const needsApproval = isNegative && review.responseApprovalStatus === 'pending' && userRole !== 'technician';
         const isApproved = review.responseApprovalStatus === 'approved';
 
         return (
