@@ -413,6 +413,13 @@ app.post('/api/reviews/:id/approve-response', async (req, res) => {
             });
         }
 
+        if (req.ejento.userRole === 'technician') {
+            return res.status(200).json({
+                success: false,
+                message: 'Must be approved by Administrator or Manager.',
+            })
+        }
+
         const isNegative = review.rating <= 2 || review.sentiment === 'negative';
 
         if (!isNegative) {
@@ -1050,6 +1057,19 @@ async function createSampleData() {
             isActive: true
         });
 
+        const aaron = await Technician.create({
+            clientId: client.id,
+            name: 'Aaron Rodriguez',
+            email: 'aaron@hivemind.com',
+            crmCode: 'TECH003',
+            persona: {
+                communicationStyle: 'professional and concise',
+                personality: 'solution-focused and efficient',
+                traits: ['experienced', 'reliable', 'technical']
+            },
+            isActive: true
+        });
+
         await Review.create({
             clientId: client.id,
             technicianId: antoine.id,
@@ -1082,7 +1102,7 @@ async function createSampleData() {
 
         await Review.create({
             clientId: client.id,
-            technicianId: null,
+            technicianId: aaron.id,
             customerName: 'Christina Keller',
             rating: 1,
             text: 'Terrible customer service, wouldn\'t recommend to my worst enemies.',
@@ -1133,7 +1153,11 @@ async function createEjentoSampleData() {
             where: { crmCode: 'TECH002' }
         });
 
-        if (!antoine || !marcus) {
+        const aaron = await Technician.findOne({
+            where: { crmCode: 'TECH003' }
+        });
+
+        if (!antoine || !marcus || !aaron) {
             throw new Error('Technicians not found. Please run createSampleData first.');
         }
 
@@ -1150,6 +1174,14 @@ async function createEjentoSampleData() {
             technicianId: marcus.id,
             ejentoLocationMappingId: locationMapping.id,
             userRole: 'admin',
+            isActive: true
+        });
+
+        await EjentoUserMapping.create({
+            ejentoUserId: 'ALKJL9878888',
+            technicianId: aaron.id,
+            ejentoLocationMappingId: locationMapping.id,
+            userRole: 'manager',
             isActive: true
         });
 
@@ -1170,6 +1202,7 @@ async function createEjentoSampleData() {
         console.log('🔗 Test URLs:');
         console.log('   Antoine (Technician): /dashboard?location=BFSHDH1284FHT&user=FHUDHWUE4884');
         console.log('   Marcus (Admin): /dashboard?location=BFSHDH1284FHT&user=GHKJL9876543');
+        console.log('   Aaron (Manager): /dashboard?location=BFSHDH1284FHT&user=ALKJL9878888');
 
     } catch (error) {
         console.error('❌ Error creating Ejento sample data:', error);
@@ -1265,5 +1298,6 @@ initializeDatabase().then(() => {
         console.log('🔗 Test URLs:');
         console.log(`   Antoine (Technician): http://localhost:3001/dashboard?location=BFSHDH1284FHT&user=FHUDHWUE4884`);
         console.log(`   Marcus (Admin): http://localhost:3001/dashboard?location=BFSHDH1284FHT&user=GHKJL9876543`);
+        console.log(`   Aaron (Manager): http://localhost:3001/dashboard?location=BFSHDH1284FHT&user=ALKJL9878888`);
     });
 });
