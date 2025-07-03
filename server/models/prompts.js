@@ -4,11 +4,26 @@ const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
     class Prompt extends Model {
         static associate(models) {
-            // Add associations here if needed in the future
+            // Associate prompts with technicians
+            Prompt.belongsTo(models.Technician, {
+                foreignKey: 'technicianId',
+                as: 'technician',
+                allowNull: true // Allow null for system prompts
+            });
+
+            // Add association for technician active prompts tracking
+            Prompt.hasMany(models.TechnicianActivePrompt, {
+                foreignKey: 'promptId',
+                as: 'technicianActivations'
+            });
         }
 
-        // Add a custom method to handle activation logic
-        static async activatePrompt(promptId) {
+        // Modified method to handle technician-specific activation logic
+        static async activatePrompt(promptId, technicianId) {
+            if (!technicianId) {
+                throw new Error('Technician ID is required for prompt activation');
+            }
+
             const transaction = await sequelize.transaction();
 
             try {
@@ -19,20 +34,43 @@ module.exports = (sequelize, DataTypes) => {
                     throw new Error('Prompt not found');
                 }
 
-                // Deactivate all other prompts of the same type
-                await this.update(
-                    { isActive: false },
-                    {
-                        where: {
-                            type: promptToActivate.type,
-                            id: { [sequelize.Sequelize.Op.ne]: promptId } // Exclude the current prompt
-                        },
-                        transaction
-                    }
-                );
+                // Get TechnicianActivePrompt model from sequelize.models
+                const TechnicianActivePrompt = sequelize.models.TechnicianActivePrompt;
 
-                // Activate the selected prompt
-                await promptToActivate.update({ isActive: true }, { transaction });
+                // Deactivate all currently active prompts for this technician
+                await TechnicianActivePrompt.destroy({
+                    where: {
+                        technicianId: technicianId,
+                        type: promptToActivate.type
+                    },
+                    transaction
+                });
+
+                // Create new activation record for this technician
+                await TechnicianActivePrompt.create({
+                    technicianId: technicianId,
+                    promptId: promptId,
+                    type: promptToActivate.type,
+                    isActive: true
+                }, { transaction });
+
+                // For personal prompts, also update the prompt's isActive field
+                if (promptToActivate.technicianId === technicianId) {
+                    await promptToActivate.update({ isActive: true }, { transaction });
+
+                    // Deactivate other personal prompts for this technician
+                    await this.update(
+                        { isActive: false },
+                        {
+                            where: {
+                                type: promptToActivate.type,
+                                technicianId: technicianId,
+                                id: { [sequelize.Sequelize.Op.ne]: promptId }
+                            },
+                            transaction
+                        }
+                    );
+                }
 
                 await transaction.commit();
                 return promptToActivate;
@@ -40,6 +78,128 @@ module.exports = (sequelize, DataTypes) => {
                 await transaction.rollback();
                 throw error;
             }
+        }
+
+        // Get active prompt for a specific technician
+        static async getActivePromptForTechnician(type, technicianId) {
+            if (!technicianId) {
+                // Fall back to system prompts only if no technician ID
+                return await this.findOne({
+                    where: {
+                        type: type,
+                        isActive: true,
+                        technicianId: null
+                    }
+                });
+            }
+
+            // Get TechnicianActivePrompt model from sequelize.models
+            const TechnicianActivePrompt = sequelize.models.TechnicianActivePrompt;
+
+            // Find active prompt for this specific technician
+            const activeRecord = await TechnicianActivePrompt.findOne({
+                where: {
+                    technicianId: technicianId,
+                    type: type,
+                    isActive: true
+                },
+                include: [
+                    {
+                        model: this,
+                        as: 'prompt',
+                        include: [
+                            {
+                                model: sequelize.models.Technician,
+                                as: 'technician',
+                                required: false
+                            }
+                        ]
+                    }
+                ]
+            });
+
+            if (activeRecord) {
+                return activeRecord.prompt;
+            }
+
+            // No active prompt found for this technician
+            return null;
+        }
+
+        // Check if a prompt is active for a specific technician
+        static async isActiveForTechnician(promptId, technicianId) {
+            if (!technicianId) return false;
+
+            const TechnicianActivePrompt = sequelize.models.TechnicianActivePrompt;
+
+            const activeRecord = await TechnicianActivePrompt.findOne({
+                where: {
+                    technicianId: technicianId,
+                    promptId: promptId,
+                    isActive: true
+                }
+            });
+
+            return !!activeRecord;
+        }
+
+        // Get all prompts with their activation status for a specific technician
+        static async getAllWithActivationStatus(type, technicianId) {
+            const TechnicianActivePrompt = sequelize.models.TechnicianActivePrompt;
+
+            let whereClause = {};
+            if (type) {
+                whereClause.type = type;
+            }
+
+            // Show technician's prompts + system prompts
+            if (technicianId) {
+                whereClause[sequelize.Sequelize.Op.or] = [
+                    { technicianId: technicianId },
+                    { technicianId: null } // System prompts
+                ];
+            }
+
+            const prompts = await this.findAll({
+                where: whereClause,
+                include: [
+                    {
+                        model: sequelize.models.Technician,
+                        as: 'technician',
+                        attributes: ['id', 'name', 'crmCode'],
+                        required: false
+                    },
+                    {
+                        model: TechnicianActivePrompt,
+                        as: 'technicianActivations',
+                        where: technicianId ? { technicianId: technicianId } : {},
+                        required: false
+                    }
+                ],
+                order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
+            });
+
+            // Add activation status for the specific technician
+            return prompts.map(prompt => {
+                const promptData = prompt.toJSON();
+
+                // Check if this prompt is active for the specific technician
+                const isActiveForTechnician = prompt.technicianActivations &&
+                    prompt.technicianActivations.length > 0 &&
+                    prompt.technicianActivations[0].isActive;
+
+                promptData.isActiveForCurrentTechnician = isActiveForTechnician;
+
+                // Keep the original isActive for personal prompts
+                if (prompt.technicianId === technicianId) {
+                    promptData.isActive = prompt.isActive;
+                } else {
+                    // For system prompts or other technicians' prompts, isActive doesn't apply
+                    promptData.isActive = false;
+                }
+
+                return promptData;
+            });
         }
     }
 
@@ -69,6 +229,15 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },
+        // Add technicianId to associate prompts with specific technicians
+        technicianId: {
+            type: DataTypes.INTEGER,
+            allowNull: true, // null means it's a system prompt available to all
+            references: {
+                model: 'Technicians',
+                key: 'id'
+            }
+        },
         createdBy: {
             type: DataTypes.STRING,
             allowNull: false,
@@ -93,6 +262,13 @@ module.exports = (sequelize, DataTypes) => {
             },
             {
                 fields: ['createdBy']
+            },
+            {
+                fields: ['technicianId']
+            },
+            // Composite index for finding active prompts by type and technician
+            {
+                fields: ['type', 'technicianId', 'isActive']
             }
         ]
     });

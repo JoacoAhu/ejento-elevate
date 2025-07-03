@@ -1056,3 +1056,530 @@ $shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     z-index: 1000;
   }
 }
+
+// Additional SCSS styles for technician-specific prompts
+// Add these to your existing PromptPlayground.scss file
+
+// Technician-specific color variables
+$system-color: #8b5cf6;    // Purple for system prompts
+$personal-color: #10b981;   // Green for personal prompts
+$other-color: #f59e0b;      // Amber for other technician prompts
+
+// Prompt type specific styling
+.prompt-item {
+  // Add border colors based on prompt type
+  &--system {
+    border-left: 4px solid $system-color;
+
+    &.prompt-item--selected {
+      background-color: rgba($system-color, 0.05);
+      border-color: $system-color;
+    }
+  }
+
+  &--personal {
+    border-left: 4px solid $personal-color;
+
+    &.prompt-item--selected {
+      background-color: rgba($personal-color, 0.05);
+      border-color: $personal-color;
+    }
+  }
+
+  &--other {
+    border-left: 4px solid $other-color;
+
+    &.prompt-item--selected {
+      background-color: rgba($other-color, 0.05);
+      border-color: $other-color;
+    }
+  }
+
+  // Type badges
+  &__type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+    margin-left: 8px;
+    white-space: nowrap;
+
+    &--system {
+      background-color: rgba($system-color, 0.1);
+      color: $system-color;
+      border: 1px solid rgba($system-color, 0.2);
+    }
+
+    &--personal {
+      background-color: rgba($personal-color, 0.1);
+      color: $personal-color;
+      border: 1px solid rgba($personal-color, 0.2);
+    }
+
+    &--other {
+      background-color: rgba($other-color, 0.1);
+      color: $other-color;
+      border: 1px solid rgba($other-color, 0.2);
+    }
+  }
+
+  // Meta badges for ownership
+  &__meta {
+    flex-wrap: wrap;
+    gap: 6px;
+
+    &-system,
+    &-personal,
+    &-other,
+    &-readonly {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    &-system {
+      background-color: rgba($system-color, 0.1);
+      color: $system-color;
+    }
+
+    &-personal {
+      background-color: rgba($personal-color, 0.1);
+      color: $personal-color;
+    }
+
+    &-other {
+      background-color: rgba($other-color, 0.1);
+      color: $other-color;
+    }
+
+    &-readonly {
+      background-color: rgba($gray-500, 0.1);
+      color: $gray-600;
+    }
+
+    &-creator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    &-date {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+  }
+}
+
+// Prompt list user info
+.prompt-list {
+  &__current-user {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: $gray-600;
+    margin-top: 4px;
+    padding: 6px 12px;
+    background-color: $gray-50;
+    border-radius: 6px;
+    border: 1px solid $gray-200;
+  }
+}
+
+// Role notice for technicians
+.prompt-management {
+  &__role-notice {
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 8px;
+
+    span {
+      color: #1e40af;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+  }
+}
+
+// Create form prompt type selection
+.create-form {
+  &__prompt-type {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  &__radio-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      border-color: #d1d5db;
+      background-color: #f9fafb;
+    }
+
+    span {
+      font-weight: 500;
+      color: #374151;
+    }
+
+    small {
+      display: block;
+      color: #6b7280;
+      font-size: 0.8rem;
+      margin-top: 4px;
+      font-weight: normal;
+    }
+
+    // When radio is checked
+    &:has(.create-form__radio:checked) {
+      border-color: $personal-color;
+      background-color: rgba($personal-color, 0.05);
+
+      span {
+        color: #059669;
+      }
+    }
+  }
+
+  &__radio {
+    flex-shrink: 0;
+    margin-top: 2px;
+    accent-color: $personal-color;
+  }
+}
+
+// Prompt type indicator in editor
+.prompt-type-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+  margin-left: 12px;
+
+  &--system {
+    background-color: rgba($system-color, 0.1);
+    color: $system-color;
+    border: 1px solid rgba($system-color, 0.2);
+  }
+
+  &--personal {
+    background-color: rgba($personal-color, 0.1);
+    color: $personal-color;
+    border: 1px solid rgba($personal-color, 0.2);
+  }
+
+  &--other {
+    background-color: rgba($other-color, 0.1);
+    color: $other-color;
+    border: 1px solid rgba($other-color, 0.2);
+  }
+}
+
+// Enhanced activation button
+.prompt-editor {
+  &__activate-btn {
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba($success-color, 0.25);
+    }
+  }
+
+  // Notice styles for permissions and ownership
+  &__readonly-notice,
+  &__activation-notice {
+    font-size: 0.8rem;
+    color: $gray-600;
+    font-style: italic;
+    padding: 6px 12px;
+    background-color: #f3f4f6;
+    border-radius: 6px;
+    border-left: 3px solid #d1d5db;
+  }
+
+  &__activation-notice {
+    color: #dc2626;
+    background-color: #fef2f2;
+    border-left-color: #dc2626;
+  }
+}
+
+// Testing section enhancements
+.testing-section {
+  &__header {
+    p {
+      small {
+        display: block;
+        font-size: 0.8rem;
+        margin-top: 4px;
+        font-style: italic;
+        color: $gray-500;
+      }
+    }
+  }
+}
+
+.prompt-container {
+  &__header {
+    small {
+      font-size: 0.75rem;
+      color: $gray-500;
+      font-weight: normal;
+      margin-left: auto;
+    }
+  }
+}
+
+// Test results enhancements
+.test-results {
+  &__header {
+    &-title {
+      small {
+        font-size: 0.75rem;
+        font-weight: normal;
+        color: $green-600;
+        margin-left: 8px;
+      }
+    }
+  }
+
+  &__content {
+    .prompt-type-info {
+      background-color: rgba($green-700, 0.1);
+      border: 1px solid rgba($green-700, 0.2);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+
+      .prompt-type-label {
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: $green-700;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+    }
+  }
+}
+
+// Dark mode support
+@media (prefers-color-scheme: dark) {
+  .prompt-item {
+    &--system {
+      border-left-color: #a78bfa;
+    }
+
+    &--personal {
+      border-left-color: #34d399;
+    }
+
+    &--other {
+      border-left-color: #fbbf24;
+    }
+  }
+
+  .prompt-item__type-badge {
+    &--system {
+      background-color: rgba(167, 139, 250, 0.15);
+      color: #a78bfa;
+      border-color: rgba(167, 139, 250, 0.3);
+    }
+
+    &--personal {
+      background-color: rgba(52, 211, 153, 0.15);
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+
+    &--other {
+      background-color: rgba(251, 191, 36, 0.15);
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+  }
+
+  .prompt-management__role-notice {
+    background-color: #1e3a8a;
+    border-color: #3b82f6;
+
+    span {
+      color: #93c5fd;
+    }
+  }
+}
+
+// Responsive design adjustments
+@media (max-width: 768px) {
+  .prompt-item {
+    &__type-badge,
+    .prompt-type-indicator {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+
+      svg {
+        width: 10px;
+        height: 10px;
+      }
+    }
+
+    &__meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+
+      &-system,
+      &-personal,
+      &-other,
+      &-readonly {
+        font-size: 0.65rem;
+      }
+    }
+  }
+
+  .create-form {
+    &__prompt-type {
+      gap: 8px;
+    }
+
+    &__radio-label {
+      padding: 12px;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+  }
+
+  .prompt-list {
+    &__current-user {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+    }
+  }
+}
+
+// Animation for prompt type transitions
+.prompt-item {
+  &__type-badge {
+    transition: all 0.2s ease;
+
+    &:hover {
+      transform: scale(1.05);
+    }
+  }
+}
+
+// Enhanced hover effects
+.prompt-editor {
+  &__activate-btn {
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s;
+    }
+
+    &:hover::before {
+      left: 100%;
+    }
+  }
+}
+
+// Loading states
+.prompt-list__items {
+  &.loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+}
+
+.prompt-editor {
+  &.loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+}
+
+// Focus states for accessibility
+.prompt-item {
+  &:focus-visible {
+    outline: 2px solid $primary-color;
+    outline-offset: 2px;
+  }
+}
+
+.create-form__radio {
+  &:focus-visible {
+    outline: 2px solid $personal-color;
+    outline-offset: 2px;
+  }
+}
+
+// Tooltip styles for meta information
+.prompt-item__meta-creator,
+.prompt-item__meta-date {
+  position: relative;
+
+  &:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: $gray-900;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    z-index: 1000;
+    margin-bottom: 4px;
+    opacity: 0;
+    animation: fadeIn 0.2s ease-in-out forwards;
+  }
+
+  &:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: $gray-900;
+    z-index: 1000;
+    opacity: 0;
+    animation: fadeIn 0.2s ease-in-out forwards;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

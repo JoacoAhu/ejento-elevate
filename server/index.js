@@ -51,6 +51,17 @@ app.get('/health', async (req, res) => {
     }
 });
 
+async function createTechnicianActivePromptsTable() {
+    try {
+        // Force sync only the TechnicianActivePrompt model
+        const { TechnicianActivePrompt } = db;
+        await TechnicianActivePrompt.sync({ force: false }); // Set to true to recreate table
+        console.log('✅ TechnicianActivePrompts table created/verified');
+    } catch (error) {
+        console.error('❌ Error creating TechnicianActivePrompts table:', error);
+    }
+}
+
 // Test OpenAI connection
 app.get('/api/ai/test', async (req, res) => {
     try {
@@ -769,16 +780,34 @@ app.post('/api/reviews/:id/generate-response', authenticateToken, async (req, re
             });
         }
 
-        const aiResult = await openaiService.generateReviewResponse(
-            {
-                customerName: review.customerName,
-                rating: review.rating,
-                text: review.text,
-                date: review.reviewDate,
-                sentiment: review.sentiment
-            },
-            review.technician
-        );
+        // Use the new technician-specific method if review has technician
+        let aiResult;
+        if (review.technician && review.technician.id) {
+            console.log(`🔄 Using technician-specific prompt for technician ID: ${review.technician.id}`);
+            aiResult = await openaiService.generateReviewResponseWithTechnicianPrompt(
+                {
+                    customerName: review.customerName,
+                    rating: review.rating,
+                    text: review.text,
+                    date: review.reviewDate,
+                    sentiment: review.sentiment
+                },
+                review.technician,
+                review.technician.id // Pass technician ID for prompt lookup
+            );
+        } else {
+            console.log('🔄 Using system prompt (no technician assigned)');
+            aiResult = await openaiService.generateReviewResponse(
+                {
+                    customerName: review.customerName,
+                    rating: review.rating,
+                    text: review.text,
+                    date: review.reviewDate,
+                    sentiment: review.sentiment
+                },
+                review.technician
+            );
+        }
 
         if (!aiResult.success) {
             return res.status(500).json({
@@ -809,6 +838,8 @@ app.post('/api/reviews/:id/generate-response', authenticateToken, async (req, re
                 response: aiResult.response,
                 usage: aiResult.usage,
                 responseApprovalStatus: responseApprovalStatus,
+                promptType: aiResult.promptType || 'system', // Show which prompt type was used
+                promptName: aiResult.promptName || 'System Prompt',
                 review: {
                     id: review.id,
                     responseText: aiResult.response,
@@ -827,7 +858,6 @@ app.post('/api/reviews/:id/generate-response', authenticateToken, async (req, re
         });
     }
 });
-
 // Approve review response (JWT auth)
 app.post('/api/reviews/:id/approve-response', authenticateToken, async (req, res) => {
     try {
@@ -1133,8 +1163,11 @@ app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, as
             });
         }
 
-        // Generate AI response
-        const aiResult = await openaiService.generateReviewResponse(
+        // Use technician-specific prompt method
+        const technicianId = review.technician?.id || req.ejento.technician.id;
+        console.log(`🔄 Using technician-specific prompt for technician ID: ${technicianId}`);
+
+        const aiResult = await openaiService.generateReviewResponseWithTechnicianPrompt(
             {
                 customerName: review.customerName,
                 rating: review.rating,
@@ -1142,7 +1175,8 @@ app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, as
                 date: review.reviewDate,
                 sentiment: review.sentiment
             },
-            review.technician
+            review.technician || req.ejento.technician,
+            technicianId
         );
 
         if (!aiResult.success) {
@@ -1174,6 +1208,9 @@ app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, as
                 response: aiResult.response,
                 usage: aiResult.usage,
                 responseApprovalStatus: responseApprovalStatus,
+                promptType: aiResult.promptType || 'system',
+                promptName: aiResult.promptName || 'System Prompt',
+                technicianId: technicianId,
                 review: {
                     id: review.id,
                     responseText: aiResult.response,
@@ -1194,64 +1231,69 @@ app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, as
 });
 
 // Approve review response (Ejento version)
-app.post('/api/reviews/:id/approve-response', authenticateEjentoUser, async (req, res) => {
+app.post('/api/testing/generate-response', async (req, res) => {
     try {
-        const reviewId = parseInt(req.params.id);
-        const { approvedBy } = req.body;
+        const {
+            reviewData,
+            technicianData,
+            responsePrompt,
+            useCustomPrompts = false,
+            technicianId = null // Add this parameter
+        } = req.body;
 
-        const review = await Review.findByPk(reviewId);
-
-        if (!review) {
-            return res.status(404).json({
-                success: false,
-                message: 'Review not found'
-            });
-        }
-
-        if (!review.responseText) {
+        if (!reviewData || !technicianData) {
             return res.status(400).json({
                 success: false,
-                message: 'No response to approve. Generate a response first.'
+                message: 'Review data and technician data are required'
             });
         }
 
-        if (req.ejento.userRole === 'technician') {
-            return res.status(403).json({
+        let result;
+
+        if (useCustomPrompts && responsePrompt) {
+            // Use custom prompt for testing
+            result = await openaiService.generateResponseWithCustomPrompts(
+                reviewData,
+                technicianData,
+                responsePrompt,
+                'test'
+            );
+        } else if (technicianId) {
+            // Use technician-specific prompt
+            result = await openaiService.generateReviewResponseWithTechnicianPrompt(
+                reviewData,
+                technicianData,
+                technicianId
+            );
+        } else {
+            // Use system prompt (original behavior)
+            result = await openaiService.generateReviewResponse(reviewData, technicianData);
+        }
+
+        if (!result.success) {
+            return res.status(500).json({
                 success: false,
-                message: 'Must be approved by Administrator or Manager.',
+                message: 'Failed to generate response',
+                error: result.error,
+                fallbackResponse: result.fallbackResponse
             });
         }
-
-        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
-
-        if (!isNegative) {
-            return res.status(400).json({
-                success: false,
-                message: 'Only negative reviews require response approval'
-            });
-        }
-
-        await review.update({
-            responseApprovalStatus: 'approved',
-            responseApprovedBy: approvedBy,
-            responseApprovedAt: new Date()
-        });
 
         res.json({
             success: true,
-            message: 'Response approved successfully',
             data: {
-                reviewId: reviewId,
-                responseApprovalStatus: 'approved',
-                responseApprovedBy: approvedBy,
-                responseApprovedAt: new Date().toISOString()
+                response: result.response,
+                usage: result.usage,
+                prompt: result.prompt,
+                promptType: result.promptType || 'system',
+                promptName: result.promptName || 'System Prompt'
             }
         });
     } catch (error) {
-        console.error('Error approving response:', error);
+        console.error('Error in testing endpoint:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to approve response',
+            message: 'Failed to generate test response',
             error: error.message
         });
     }
@@ -1559,21 +1601,47 @@ app.post('/api/admin/ejento/generate-url', requireAdminRole, async (req, res) =>
 // =============================================================================
 
 // Get all prompts
+// Get all prompts with technician-specific filtering
 app.get('/api/prompts', async (req, res) => {
     try {
-        const { type } = req.query;
-        const whereClause = type ? { type } : {};
+        const { type, technicianId } = req.query;
 
-        const prompts = await Prompt.findAll({
-            where: whereClause,
-            order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
-        });
+        if (technicianId) {
+            // Use the new method that includes activation status for the technician
+            const prompts = await Prompt.getAllWithActivationStatus(type, parseInt(technicianId));
 
-        res.json({
-            success: true,
-            data: prompts,
-            total: prompts.length
-        });
+            res.json({
+                success: true,
+                data: prompts,
+                total: prompts.length,
+                technicianId: parseInt(technicianId)
+            });
+        } else {
+            // Original logic for backward compatibility
+            let whereClause = {};
+            if (type) {
+                whereClause.type = type;
+            }
+
+            const prompts = await Prompt.findAll({
+                where: whereClause,
+                include: [
+                    {
+                        model: Technician,
+                        as: 'technician',
+                        attributes: ['id', 'name', 'crmCode'],
+                        required: false
+                    }
+                ],
+                order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
+            });
+
+            res.json({
+                success: true,
+                data: prompts,
+                total: prompts.length
+            });
+        }
     } catch (error) {
         console.error('Error fetching prompts:', error);
         res.status(500).json({
@@ -1584,22 +1652,102 @@ app.get('/api/prompts', async (req, res) => {
     }
 });
 
-// Get active prompt by type
+app.post('/api/prompts', async (req, res) => {
+    try {
+        const { name, type, content, description, createdBy = 'admin', technicianId = null } = req.body;
+
+        if (!name || !type || !content) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, type, and content are required'
+            });
+        }
+
+        // If technicianId is provided, validate it exists
+        if (technicianId) {
+            const technician = await Technician.findByPk(technicianId);
+            if (!technician) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid technician ID'
+                });
+            }
+        }
+
+        const lastPrompt = await Prompt.findOne({
+            where: {
+                type,
+                technicianId: technicianId || null
+            },
+            order: [['version', 'DESC']]
+        });
+
+        const nextVersion = lastPrompt ? lastPrompt.version + 1 : 1;
+
+        const prompt = await Prompt.create({
+            name,
+            type,
+            content,
+            description,
+            version: nextVersion,
+            createdBy,
+            technicianId: technicianId || null,
+            isActive: false
+        });
+
+        // Include technician info in response if associated
+        const promptWithTechnician = await Prompt.findByPk(prompt.id, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'crmCode'],
+                    required: false
+                }
+            ]
+        });
+
+        res.json({
+            success: true,
+            message: 'Prompt created successfully',
+            data: promptWithTechnician
+        });
+    } catch (error) {
+        console.error('Error creating prompt:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create prompt',
+            error: error.message
+        });
+    }
+});
+
+// Get active prompt by type for specific technician
 app.get('/api/prompts/active/:type', async (req, res) => {
     try {
         const { type } = req.params;
+        const { technicianId } = req.query;
 
-        const prompt = await Prompt.findOne({
-            where: {
-                type: type,
-                isActive: true
-            }
-        });
+        let prompt;
+
+        if (technicianId) {
+            // Use the updated method for technician-specific lookup
+            prompt = await Prompt.getActivePromptForTechnician(type, parseInt(technicianId));
+        } else {
+            // Fall back to system prompts only
+            prompt = await Prompt.findOne({
+                where: {
+                    type: type,
+                    isActive: true,
+                    technicianId: null // System prompts only
+                }
+            });
+        }
 
         if (!prompt) {
             return res.status(404).json({
                 success: false,
-                message: `No active prompt found for type: ${type}`
+                message: `No active prompt found for type: ${type}${technicianId ? ' for this technician' : ''}`
             });
         }
 
@@ -1617,51 +1765,54 @@ app.get('/api/prompts/active/:type', async (req, res) => {
     }
 });
 
-// Create new prompt
-app.post('/api/prompts', async (req, res) => {
-    try {
-        const { name, type, content, description, createdBy = 'admin' } = req.body;
 
-        if (!name || !type || !content) {
+// Create new prompt with technician association
+app.post('/api/prompts/:id/activate', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { technicianId } = req.body;
+
+        if (!technicianId) {
             return res.status(400).json({
                 success: false,
-                message: 'Name, type, and content are required'
+                message: 'Technician ID is required for prompt activation'
             });
         }
 
-        const lastPrompt = await Prompt.findOne({
-            where: { type },
-            order: [['version', 'DESC']]
-        });
+        // Find the prompt first to determine its properties
+        const promptToActivate = await Prompt.findByPk(id);
+        if (!promptToActivate) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prompt not found'
+            });
+        }
 
-        const nextVersion = lastPrompt ? lastPrompt.version + 1 : 1;
+        // Use the updated activation method
+        const prompt = await Prompt.activatePrompt(id, parseInt(technicianId));
 
-        const prompt = await Prompt.create({
-            name,
-            type,
-            content,
-            description,
-            version: nextVersion,
-            createdBy,
-            isActive: false
-        });
+        openaiService.clearPromptCache();
+
+        const promptType = promptToActivate.technicianId ? 'personal' : 'system';
 
         res.json({
             success: true,
-            message: 'Prompt created successfully',
-            data: prompt
+            message: `${promptType} prompt activated successfully for technician ${technicianId}`,
+            data: prompt,
+            promptType: promptType,
+            technicianId: parseInt(technicianId)
         });
     } catch (error) {
-        console.error('Error creating prompt:', error);
+        console.error('Error activating prompt:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to create prompt',
+            message: 'Failed to activate prompt',
             error: error.message
         });
     }
 });
 
-// Update prompt
+// Update prompt (unchanged, but include technician info in response)
 app.put('/api/prompts/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -1682,12 +1833,24 @@ app.put('/api/prompts/:id', async (req, res) => {
             description: description || prompt.description
         });
 
+        // Get updated prompt with technician info
+        const updatedPrompt = await Prompt.findByPk(id, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'crmCode'],
+                    required: false
+                }
+            ]
+        });
+
         openaiService.clearPromptCache();
 
         res.json({
             success: true,
             message: 'Prompt updated successfully',
-            data: prompt
+            data: updatedPrompt
         });
     } catch (error) {
         console.error('Error updating prompt:', error);
@@ -1699,18 +1862,41 @@ app.put('/api/prompts/:id', async (req, res) => {
     }
 });
 
-// Activate prompt
+// Activate prompt with technician-specific logic
 app.post('/api/prompts/:id/activate', async (req, res) => {
     try {
         const { id } = req.params;
+        const { technicianId } = req.body;
 
-        const prompt = await Prompt.activatePrompt(id);
+        if (!technicianId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Technician ID is required for prompt activation'
+            });
+        }
+
+        // Find the prompt first to determine its properties
+        const promptToActivate = await Prompt.findByPk(id);
+        if (!promptToActivate) {
+            return res.status(404).json({
+                success: false,
+                message: 'Prompt not found'
+            });
+        }
+
+        // Use the updated activation method
+        const prompt = await Prompt.activatePrompt(id, parseInt(technicianId));
+
         openaiService.clearPromptCache();
+
+        const promptType = promptToActivate.technicianId ? 'personal' : 'system';
 
         res.json({
             success: true,
-            message: `Prompt activated successfully for type: ${prompt.type}`,
-            data: prompt
+            message: `${promptType} prompt activated successfully for technician ${technicianId}`,
+            data: prompt,
+            promptType: promptType,
+            technicianId: parseInt(technicianId)
         });
     } catch (error) {
         console.error('Error activating prompt:', error);
@@ -1723,45 +1909,56 @@ app.post('/api/prompts/:id/activate', async (req, res) => {
 });
 
 // =============================================================================
-// EJENTO PROMPT MANAGEMENT ENDPOINTS (Role-Based)
+// UPDATED EJENTO PROMPT MANAGEMENT ENDPOINTS (Technician-Specific)
 // =============================================================================
 
-// Get prompts with Ejento authentication and role-based filtering
+// Get prompts with Ejento authentication and technician-specific filtering
 app.get('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
     try {
         const { type } = req.query;
         const userRole = req.ejento.userRole;
+        const technicianId = req.ejento.technician.id;
         const technicianName = req.ejento.technician.name;
 
-        // Build base where clause
-        let whereClause = {};
-        if (type) {
-            whereClause.type = type;
-        }
+        let prompts;
 
-        // Apply role-based filtering
         if (userRole === 'technician') {
-            // Technicians can only see:
-            // 1. Their own prompts (createdBy matches their name)
-            // 2. System prompts (createdBy = 'system', 'admin', or 'System Administrator')
-            whereClause[Op.or] = [
-                { createdBy: technicianName },
-                { createdBy: { [Op.in]: ['system', 'admin', 'System Administrator'] } }
-            ];
-        }
-        // Admins and managers can see all prompts (no additional filtering needed)
+            // Use the new method that shows activation status for this technician
+            prompts = await Prompt.getAllWithActivationStatus(type, technicianId);
 
-        const prompts = await Prompt.findAll({
-            where: whereClause,
-            order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
-        });
+            // Filter to show only their prompts and system prompts
+            prompts = prompts.filter(prompt =>
+                prompt.technicianId === technicianId ||
+                prompt.technicianId === null ||
+                (prompt.createdBy === technicianName && prompt.technicianId === null)
+            );
+        } else {
+            // Admins and managers can see all prompts
+            if (type) {
+                prompts = await Prompt.getAllWithActivationStatus(type, technicianId);
+            } else {
+                const allPrompts = await Prompt.findAll({
+                    include: [
+                        {
+                            model: Technician,
+                            as: 'technician',
+                            attributes: ['id', 'name', 'crmCode'],
+                            required: false
+                        }
+                    ],
+                    order: [['type', 'ASC'], ['version', 'DESC'], ['createdAt', 'DESC']]
+                });
+                prompts = allPrompts.map(p => p.toJSON());
+            }
+        }
 
         res.json({
             success: true,
             data: prompts,
             total: prompts.length,
             userRole: userRole,
-            filteredFor: userRole === 'technician' ? technicianName : 'all'
+            filteredFor: userRole === 'technician' ? technicianName : 'all',
+            technicianId: technicianId
         });
     } catch (error) {
         console.error('Error fetching prompts:', error);
@@ -1773,42 +1970,43 @@ app.get('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
     }
 });
 
-// Get active prompt by type with Ejento authentication
+// Get active prompt by type with Ejento authentication and technician-specific logic
 app.get('/api/ejento/prompts/active/:type', authenticateEjentoUser, async (req, res) => {
     try {
         const { type } = req.params;
         const userRole = req.ejento.userRole;
-        const technicianName = req.ejento.technician.name;
+        const technicianId = req.ejento.technician.id;
 
-        // Build where clause for active prompt
-        let whereClause = {
-            type: type,
-            isActive: true
-        };
+        let prompt;
 
-        // Apply role-based filtering for active prompts
         if (userRole === 'technician') {
-            // Technicians can only see active prompts they created or system prompts
-            whereClause[Op.or] = [
-                { createdBy: technicianName },
-                { createdBy: { [Op.in]: ['system', 'admin', 'System Administrator'] } }
-            ];
-        }
+            // For technicians, get their specific active prompt
+            prompt = await Prompt.getActivePromptForTechnician(type, technicianId);
+        } else {
+            // For admins/managers, they might want to see a specific technician's active prompt
+            const { targetTechnicianId } = req.query;
 
-        const prompt = await Prompt.findOne({
-            where: whereClause
-        });
+            if (targetTechnicianId) {
+                prompt = await Prompt.getActivePromptForTechnician(type, parseInt(targetTechnicianId));
+            } else {
+                // Default to current user's context
+                prompt = await Prompt.getActivePromptForTechnician(type, technicianId);
+            }
+        }
 
         if (!prompt) {
             return res.status(404).json({
                 success: false,
-                message: `No active prompt found for type: ${type} that you have access to`
+                message: `No active prompt found for type: ${type}`
             });
         }
 
         res.json({
             success: true,
-            data: prompt
+            data: prompt,
+            isSystemPrompt: prompt.technicianId === null,
+            isTechnicianSpecific: prompt.technicianId !== null,
+            activatedBy: technicianId
         });
     } catch (error) {
         console.error('Error fetching active prompt:', error);
@@ -1820,11 +2018,13 @@ app.get('/api/ejento/prompts/active/:type', authenticateEjentoUser, async (req, 
     }
 });
 
-// Create prompt with Ejento authentication
+// Create prompt with Ejento authentication and technician association
 app.post('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
     try {
-        const { name, type, content, description } = req.body;
+        const { name, type, content, description, isSystemPrompt = false } = req.body;
         const technicianName = req.ejento.technician.name;
+        const technicianId = req.ejento.technician.id;
+        const userRole = req.ejento.userRole;
 
         if (!name || !type || !content) {
             return res.status(400).json({
@@ -1833,8 +2033,27 @@ app.post('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
             });
         }
 
+        // Determine technician association
+        let promptTechnicianId = null;
+
+        if (!isSystemPrompt) {
+            // Associate with the creating technician
+            promptTechnicianId = technicianId;
+        } else {
+            // Only admins and managers can create system prompts
+            if (userRole === 'technician') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only administrators and managers can create system prompts'
+                });
+            }
+        }
+
         const lastPrompt = await Prompt.findOne({
-            where: { type },
+            where: {
+                type,
+                technicianId: promptTechnicianId
+            },
             order: [['version', 'DESC']]
         });
 
@@ -1846,14 +2065,27 @@ app.post('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
             content,
             description,
             version: nextVersion,
-            createdBy: technicianName, // Use the authenticated technician's name
+            createdBy: technicianName,
+            technicianId: promptTechnicianId,
             isActive: false
+        });
+
+        // Include technician info in response
+        const promptWithTechnician = await Prompt.findByPk(prompt.id, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'crmCode'],
+                    required: false
+                }
+            ]
         });
 
         res.json({
             success: true,
-            message: 'Prompt created successfully',
-            data: prompt
+            message: `${promptTechnicianId ? 'Personal' : 'System'} prompt created successfully`,
+            data: promptWithTechnician
         });
     } catch (error) {
         console.error('Error creating prompt:', error);
@@ -1865,17 +2097,16 @@ app.post('/api/ejento/prompts', authenticateEjentoUser, async (req, res) => {
     }
 });
 
-// Update prompt with role-based permissions
-app.put('/api/ejento/prompts/:id', authenticateEjentoUser, async (req, res) => {
+// Activate prompt with role-based permissions and technician-specific logic
+app.post('/api/ejento/prompts/:id/activate', authenticateEjentoUser, async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, content, description } = req.body;
         const userRole = req.ejento.userRole;
-        const technicianName = req.ejento.technician.name;
+        const technicianId = req.ejento.technician.id;
 
-        const prompt = await Prompt.findByPk(id);
-
-        if (!prompt) {
+        // Find the prompt first
+        const promptToActivate = await Prompt.findByPk(id);
+        if (!promptToActivate) {
             return res.status(404).json({
                 success: false,
                 message: 'Prompt not found'
@@ -1884,60 +2115,37 @@ app.put('/api/ejento/prompts/:id', authenticateEjentoUser, async (req, res) => {
 
         // Check permissions
         if (userRole === 'technician') {
-            // Technicians can only edit their own prompts
-            if (prompt.createdBy !== technicianName) {
+            // Technicians can only activate their own prompts or system prompts
+            if (promptToActivate.technicianId !== null && promptToActivate.technicianId !== technicianId) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You can only edit prompts that you created'
+                    message: 'You can only activate your own prompts or system prompts'
                 });
             }
         }
-        // Admins and managers can edit any prompt
+        // Admins and managers can activate any prompt for any technician
 
-        await prompt.update({
-            name: name || prompt.name,
-            content: content || prompt.content,
-            description: description || prompt.description
-        });
-
-        openaiService.clearPromptCache();
-
-        res.json({
-            success: true,
-            message: 'Prompt updated successfully',
-            data: prompt
-        });
-    } catch (error) {
-        console.error('Error updating prompt:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update prompt',
-            error: error.message
-        });
-    }
-});
-
-// Activate prompt with role-based permissions
-app.post('/api/ejento/prompts/:id/activate', authenticateEjentoUser, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userRole = req.ejento.userRole;
-
-        // Only admins and managers can activate prompts
-        if (userRole === 'technician') {
-            return res.status(403).json({
-                success: false,
-                message: 'Only administrators and managers can activate prompts'
-            });
+        // For admins/managers, allow specifying which technician to activate the prompt for
+        let targetTechnicianId = technicianId;
+        if ((userRole === 'admin' || userRole === 'manager') && req.body.targetTechnicianId) {
+            targetTechnicianId = parseInt(req.body.targetTechnicianId);
         }
 
-        const prompt = await Prompt.activatePrompt(id);
+        // Use the updated activation method
+        const prompt = await Prompt.activatePrompt(id, targetTechnicianId);
+
         openaiService.clearPromptCache();
+
+        const promptType = promptToActivate.technicianId ? 'personal' : 'system';
 
         res.json({
             success: true,
-            message: `Prompt activated successfully for type: ${prompt.type}`,
-            data: prompt
+            message: `${promptType} prompt activated successfully for technician ${targetTechnicianId}`,
+            data: prompt,
+            isSystemPrompt: prompt.technicianId === null,
+            isTechnicianSpecific: prompt.technicianId !== null,
+            activatedFor: targetTechnicianId,
+            activatedBy: technicianId
         });
     } catch (error) {
         console.error('Error activating prompt:', error);
@@ -1948,6 +2156,172 @@ app.post('/api/ejento/prompts/:id/activate', authenticateEjentoUser, async (req,
         });
     }
 });
+
+// Update the AI response generation to use technician-specific prompts
+app.post('/api/ejento/reviews/:id/generate-response', authenticateEjentoUser, async (req, res) => {
+    try {
+        const reviewId = parseInt(req.params.id);
+
+        const review = await Review.findByPk(reviewId, {
+            include: [
+                {
+                    model: Technician,
+                    as: 'technician',
+                    attributes: ['id', 'name', 'email', 'persona']
+                }
+            ]
+        });
+
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: 'Review not found'
+            });
+        }
+
+        // Check permissions
+        const hasPermission = req.ejento.userRole === 'admin' ||
+            req.ejento.userRole === 'manager' ||
+            (req.ejento.userRole === 'technician' && review.technicianId === req.ejento.technician.id);
+
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to generate responses for this review'
+            });
+        }
+
+        // Generate AI response using technician-specific prompt
+        const aiResult = await openaiService.generateReviewResponseWithTechnicianPrompt(
+            {
+                customerName: review.customerName,
+                rating: review.rating,
+                text: review.text,
+                date: review.reviewDate,
+                sentiment: review.sentiment
+            },
+            review.technician,
+            review.technicianId // Pass the technician ID to get their specific prompt
+        );
+
+        if (!aiResult.success) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to generate AI response',
+                error: aiResult.error,
+                fallbackResponse: aiResult.fallbackResponse
+            });
+        }
+
+        const isNegative = review.rating <= 2 || review.sentiment === 'negative';
+        const responseApprovalStatus = isNegative ? 'pending' : 'approved';
+
+        await review.update({
+            responseText: aiResult.response,
+            responseDate: new Date(),
+            status: 'responded',
+            responseApprovalStatus: responseApprovalStatus,
+            responseApprovedBy: isNegative ? null : 'system',
+            responseApprovedAt: isNegative ? null : new Date()
+        });
+
+        res.json({
+            success: true,
+            message: 'AI response generated successfully',
+            data: {
+                reviewId: reviewId,
+                response: aiResult.response,
+                usage: aiResult.usage,
+                responseApprovalStatus: responseApprovalStatus,
+                usedPromptType: aiResult.promptType, // 'technician-specific' or 'system'
+                review: {
+                    id: review.id,
+                    responseText: aiResult.response,
+                    responseDate: new Date(),
+                    status: 'responded',
+                    responseApprovalStatus: responseApprovalStatus
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Ejento generate response error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// Update the default prompts creation to be system prompts
+async function createDefaultPrompts() {
+    try {
+        const promptCount = await Prompt.count();
+        if (promptCount === 0) {
+            console.log('🌱 Creating default prompts...');
+
+            // Create a system prompt that everyone can see (technicianId = null)
+            await Prompt.create({
+                name: 'Default System Prompt',
+                type: 'response_generation',
+                content: `You are an AI assistant helping home service technicians respond to customer reviews. You excel at creating personalized, authentic responses that match each technician's unique communication style.
+
+CORE PRINCIPLES:
+- Write as the actual technician, not a company representative
+- Match the specified communication style and personality exactly
+- Address specific details mentioned in the review
+- Show genuine appreciation for positive feedback
+- Handle criticism with professionalism and solution-focused approach
+- Keep responses conversational and authentic (avoid corporate speak)
+- Maintain appropriate length (100-200 words)
+
+RESPONSE STRUCTURE:
+1. Personal greeting/acknowledgment
+2. Address specific points from the review
+3. Reflect the technician's personality naturally
+4. Express gratitude or address concerns
+5. Professional closing with future service invitation
+
+Remember: Each technician has a unique voice - capture that authenticity while maintaining professionalism.
+
+Generate a professional response to this customer review:
+
+REVIEW DETAILS:
+- Customer: {{customerName}}
+- Rating: {{rating}}/5 stars
+- Review: "{{reviewText}}"
+- Date: {{reviewDate}}
+- Sentiment: {{sentiment}}
+
+TECHNICIAN PERSONA:
+- Name: {{technicianName}}
+- Communication Style: {{communicationStyle}}
+- Personality: {{personality}}
+- Traits: {{traits}}
+
+RESPONSE REQUIREMENTS:
+1. Write as if you are {{technicianName}} responding personally
+2. Match the communication style: {{communicationStyle}}
+3. Address the specific points mentioned in the review
+4. Keep response under 150 words
+5. Be authentic and {{personality}}
+6. Include gratitude for the feedback
+7. {{ratingGuidance}}
+8. Invite future business if appropriate
+
+Generate only the response text, no additional formatting or explanations.`,
+                isActive: true,
+                createdBy: 'system',
+                technicianId: null, // System prompt
+                description: 'Default system prompt visible to all users for creating review responses using technician personas'
+            });
+
+            console.log('✅ Default system prompts created successfully.');
+        }
+    } catch (error) {
+        console.error('❌ Error creating default prompts:', error);
+    }
+}
 
 // =============================================================================
 // TESTING ENDPOINTS
@@ -2062,6 +2436,8 @@ async function initializeDatabase() {
     try {
         await sequelize.authenticate();
         console.log('✅ Database connection established successfully.');
+
+        await createTechnicianActivePromptsTable();
 
         const clientCount = await Client.count();
         if (clientCount === 0) {
@@ -2264,74 +2640,6 @@ async function createEjentoSampleData() {
 
     } catch (error) {
         console.error('❌ Error creating Ejento sample data:', error);
-    }
-}
-
-async function createDefaultPrompts() {
-    try {
-        const promptCount = await Prompt.count();
-        if (promptCount === 0) {
-            console.log('🌱 Creating default prompts...');
-
-            // Create a system prompt that everyone can see
-            await Prompt.create({
-                name: 'Default System Prompt',
-                type: 'response_generation',
-                content: `You are an AI assistant helping home service technicians respond to customer reviews. You excel at creating personalized, authentic responses that match each technician's unique communication style.
-
-CORE PRINCIPLES:
-- Write as the actual technician, not a company representative
-- Match the specified communication style and personality exactly
-- Address specific details mentioned in the review
-- Show genuine appreciation for positive feedback
-- Handle criticism with professionalism and solution-focused approach
-- Keep responses conversational and authentic (avoid corporate speak)
-- Maintain appropriate length (100-200 words)
-
-RESPONSE STRUCTURE:
-1. Personal greeting/acknowledgment
-2. Address specific points from the review
-3. Reflect the technician's personality naturally
-4. Express gratitude or address concerns
-5. Professional closing with future service invitation
-
-Remember: Each technician has a unique voice - capture that authenticity while maintaining professionalism.
-
-Generate a professional response to this customer review:
-
-REVIEW DETAILS:
-- Customer: {{customerName}}
-- Rating: {{rating}}/5 stars
-- Review: "{{reviewText}}"
-- Date: {{reviewDate}}
-- Sentiment: {{sentiment}}
-
-TECHNICIAN PERSONA:
-- Name: {{technicianName}}
-- Communication Style: {{communicationStyle}}
-- Personality: {{personality}}
-- Traits: {{traits}}
-
-RESPONSE REQUIREMENTS:
-1. Write as if you are {{technicianName}} responding personally
-2. Match the communication style: {{communicationStyle}}
-3. Address the specific points mentioned in the review
-4. Keep response under 150 words
-5. Be authentic and {{personality}}
-6. Include gratitude for the feedback
-7. {{ratingGuidance}}
-8. Invite future business if appropriate
-
-Generate only the response text, no additional formatting or explanations.`,
-                isActive: true,
-                createdBy: 'system',
-                description: 'Default system prompt visible to all users for creating review responses using technician personas'
-            });
-
-            console.log('✅ Default prompts created successfully.');
-        }
-    } catch (error) {
-        console.error('❌ Error creating default prompts:', error);
     }
 }
 

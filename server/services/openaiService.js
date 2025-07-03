@@ -13,12 +13,9 @@ class OpenAIService {
             apiKey: process.env.OPENAI_API_KEY
         });
 
-        // Cache for prompts to avoid database hits on every request
-        this.promptCache = {
-            system: null,
-            response_generation: null,
-            lastUpdated: null
-        };
+        // Enhanced cache for prompts - now supports technician-specific caching
+        this.promptCache = new Map();
+        this.cacheExpiry = 5 * 60 * 1000; // 5 minutes
     }
 
     /**
@@ -29,31 +26,67 @@ class OpenAIService {
     }
 
     /**
-     * Get active prompt from database with caching
+     * Clear prompt cache (useful when prompts are updated)
+     */
+    clearPromptCache() {
+        this.promptCache.clear();
+        console.log('🗑️ Prompt cache cleared');
+    }
+
+    /**
+     * Get cached prompt or fetch from database
+     */
+    async getCachedPrompt(type, technicianId = null) {
+        const cacheKey = `${type}_${technicianId || 'system'}`;
+        const cached = this.promptCache.get(cacheKey);
+
+        if (cached && (Date.now() - cached.timestamp) < this.cacheExpiry) {
+            console.log(`📋 Using cached prompt for ${cacheKey}`);
+            return cached.prompt;
+        }
+
+        // Import Prompt model - do this inside the method to avoid circular imports
+        const db = require('../models');
+        const { Prompt } = db;
+
+        let prompt;
+        if (technicianId) {
+            // Use the new method to get technician-specific active prompt
+            prompt = await Prompt.getActivePromptForTechnician(type, technicianId);
+        } else {
+            // Original system prompt lookup (fallback)
+            prompt = await Prompt.findOne({
+                where: {
+                    type: type,
+                    isActive: true,
+                    technicianId: null // System prompts only
+                }
+            });
+        }
+
+        if (prompt) {
+            this.promptCache.set(cacheKey, {
+                prompt: prompt,
+                timestamp: Date.now()
+            });
+
+            const promptSource = prompt.technicianId ? 'technician-specific' : 'system';
+            console.log(`📋 Cached prompt for ${cacheKey} (${promptSource}) - "${prompt.name}"`);
+            return prompt;
+        }
+
+        console.log(`⚠️ No active prompt found for ${cacheKey}`);
+        return null;
+    }
+
+    /**
+     * Get active prompt from database with caching (original method - maintained for backward compatibility)
      */
     async getActivePrompt(type = 'response_generation') {
         try {
-            // Import Prompt model - do this inside the method to avoid circular imports
-            const db = require('../models');
-            const { Prompt } = db;
-
-            // Check cache first (cache for 5 minutes)
-            const now = Date.now();
-            if (this.promptCache[type] && this.promptCache.lastUpdated &&
-                (now - this.promptCache.lastUpdated) < 300000) {
-                return this.promptCache[type];
-            }
-
-            const prompt = await Prompt.findOne({
-                where: {
-                    type: type,
-                    isActive: true
-                }
-            });
+            const prompt = await this.getCachedPrompt(type, null); // null = system prompts only
 
             if (prompt) {
-                this.promptCache[type] = prompt.content;
-                this.promptCache.lastUpdated = now;
                 return prompt.content;
             }
 
@@ -66,15 +99,80 @@ class OpenAIService {
         }
     }
 
-    clearPromptCache() {
-        this.promptCache = {
-            response_generation: null,
-            lastUpdated: null
-        };
+    /**
+     * NEW METHOD: Generate review response using technician-specific prompt
+     */
+    async generateReviewResponseWithTechnicianPrompt(review, technician, technicianId) {
+        if (!this.isConfigured()) {
+            return {
+                success: false,
+                error: 'OpenAI not configured',
+                fallbackResponse: this.getFallbackResponse(review.rating)
+            };
+        }
+
+        try {
+            console.log(`🤖 Generating response with technician-specific prompt for technician ID: ${technicianId}`);
+
+            // Get the active prompt for this technician (or fall back to system prompt)
+            const activePrompt = await this.getCachedPrompt('response_generation', technicianId);
+
+            if (!activePrompt) {
+                console.warn('⚠️ No active prompt found for technician, using fallback');
+                return {
+                    success: false,
+                    error: 'No active prompt found',
+                    fallbackResponse: this.getFallbackResponse(review.rating)
+                };
+            }
+
+            const promptType = activePrompt.technicianId ? 'technician-specific' : 'system';
+            console.log(`📋 Using ${promptType} prompt: "${activePrompt.name}" (ID: ${activePrompt.id})`);
+
+            // Build the complete prompt with variable substitution
+            const completePrompt = this.buildUserPrompt(activePrompt.content, review, technician);
+
+            const completion = await this.openai.chat.completions.create({
+                model: process.env.OPENAI_MODEL || 'gpt-4o',
+                messages: [
+                    {
+                        role: 'user',
+                        content: completePrompt
+                    }
+                ],
+                max_tokens: parseInt(process.env.OPENAI_MAX_TOKENS) || 300,
+                temperature: parseFloat(process.env.OPENAI_TEMPERATURE) || 0.7,
+                presence_penalty: 0.1,
+                frequency_penalty: 0.1
+            });
+
+            const response = completion.choices[0]?.message?.content?.trim();
+
+            if (!response) {
+                throw new Error('No response generated from OpenAI');
+            }
+
+            return {
+                success: true,
+                response: response,
+                usage: completion.usage,
+                prompt: completePrompt,
+                promptType: promptType,
+                promptName: activePrompt.name
+            };
+
+        } catch (error) {
+            console.error('Error in generateReviewResponseWithTechnicianPrompt:', error);
+            return {
+                success: false,
+                error: error.message,
+                fallbackResponse: this.getFallbackResponse(review.rating)
+            };
+        }
     }
 
     /**
-     * Generate a personalized response to a review based on technician persona
+     * Generate a personalized response to a review based on technician persona (original method - enhanced)
      */
     async generateReviewResponse(review, technician) {
         if (!this.isConfigured()) {
@@ -86,7 +184,9 @@ class OpenAIService {
         }
 
         try {
-            // Get the combined prompt from database
+            console.log('🤖 Generating review response with system prompt');
+
+            // Get system prompt only (original behavior)
             const promptTemplate = await this.getActivePrompt('response_generation');
 
             // Build the complete prompt with variable substitution
@@ -130,9 +230,9 @@ class OpenAIService {
     }
 
     /**
-     * Generate response with custom prompts (for testing)
+     * Generate response with custom prompts (for testing) - enhanced
      */
-    async generateResponseWithCustomPrompts(review, technician, customPrompt) {
+    async generateResponseWithCustomPrompts(review, technician, customPrompt, promptType = 'custom') {
         if (!this.isConfigured()) {
             return {
                 success: false,
@@ -142,7 +242,11 @@ class OpenAIService {
         }
 
         try {
+            console.log(`🤖 Generating response using ${promptType} prompt`);
+
             const userPrompt = this.buildUserPrompt(customPrompt, review, technician);
+
+            console.log('📝 Processed prompt length:', userPrompt.length);
 
             const completion = await this.openai.chat.completions.create({
                 model: process.env.OPENAI_MODEL || 'gpt-4o',
@@ -164,11 +268,15 @@ class OpenAIService {
                 throw new Error('No response generated from OpenAI');
             }
 
+            console.log('✅ Response generated successfully');
+            console.log('📊 Token usage:', completion.usage);
+
             return {
                 success: true,
                 response: response,
                 usage: completion.usage,
-                prompt: userPrompt
+                prompt: userPrompt,
+                promptType: promptType
             };
 
         } catch (error) {
@@ -182,30 +290,60 @@ class OpenAIService {
     }
 
     /**
-     * Build user prompt by replacing template variables
+     * Build user prompt by replacing template variables (enhanced with better variable handling)
      */
     buildUserPrompt(promptTemplate, review, technician) {
         const persona = technician?.persona || this.getDefaultPersona();
 
-        // Determine rating guidance
-        const ratingGuidance = review.rating >= 4
-            ? 'Express appreciation for positive feedback'
-            : 'Address concerns professionally and offer solutions';
+        // Determine rating guidance based on rating
+        const ratingGuidance = this.generateRatingGuidance(review.rating);
 
-        // Replace template variables
+        // Replace template variables with more robust handling
         let prompt = promptTemplate
-            .replace(/\{\{customerName\}\}/g, review.customerName || 'the customer')
-            .replace(/\{\{rating\}\}/g, review.rating || 'unknown')
+            .replace(/\{\{customerName\}\}/g, review.customerName || 'Valued Customer')
+            .replace(/\{\{rating\}\}/g, review.rating || 'N/A')
             .replace(/\{\{reviewText\}\}/g, review.text || '')
-            .replace(/\{\{reviewDate\}\}/g, review.date || new Date().toISOString())
-            .replace(/\{\{sentiment\}\}/g, review.sentiment || 'unknown')
-            .replace(/\{\{technicianName\}\}/g, technician?.name || 'Our technician')
+            .replace(/\{\{reviewDate\}\}/g, review.date || new Date().toLocaleDateString())
+            .replace(/\{\{sentiment\}\}/g, review.sentiment || 'neutral')
+            .replace(/\{\{technicianName\}\}/g, technician?.name || 'Technician')
             .replace(/\{\{communicationStyle\}\}/g, persona.communicationStyle || 'professional and friendly')
-            .replace(/\{\{personality\}\}/g, persona.personality || 'customer-focused')
-            .replace(/\{\{traits\}\}/g, persona.traits?.join(', ') || 'professional, helpful')
+            .replace(/\{\{personality\}\}/g, persona.personality || 'customer-focused and reliable')
+            .replace(/\{\{traits\}\}/g, this.formatTraits(persona.traits))
             .replace(/\{\{ratingGuidance\}\}/g, ratingGuidance);
 
         return prompt;
+    }
+
+    /**
+     * Format traits for prompt insertion
+     */
+    formatTraits(traits) {
+        if (Array.isArray(traits)) {
+            return traits.join(', ');
+        }
+        if (typeof traits === 'string') {
+            return traits;
+        }
+        return 'professional, helpful';
+    }
+
+    /**
+     * Generate rating-specific guidance
+     */
+    generateRatingGuidance(rating) {
+        if (!rating) return 'Provide a professional and helpful response';
+
+        if (rating >= 5) {
+            return 'Express genuine gratitude and enthusiasm for the positive feedback';
+        } else if (rating >= 4) {
+            return 'Thank the customer and acknowledge their generally positive experience';
+        } else if (rating >= 3) {
+            return 'Acknowledge their feedback and express willingness to improve their experience';
+        } else if (rating >= 2) {
+            return 'Address their concerns professionally and offer solutions or follow-up';
+        } else {
+            return 'Take ownership of the issues, apologize sincerely, and outline concrete steps to resolve problems';
+        }
     }
 
     /**
@@ -291,19 +429,21 @@ Remember: Each technician has a unique voice - capture that authenticity while m
     }
 
     /**
-     * Get fallback response for failed AI generation
+     * Get fallback response for failed AI generation (enhanced)
      */
     getFallbackResponse(rating) {
+        const technicianName = 'Our technician'; // Could be passed as parameter if needed
+
         if (rating >= 4) {
-            return "Thank you so much for your wonderful review! It means a lot to know that our service met your expectations. We truly appreciate your business and look forward to serving you again in the future.";
+            return `Thank you so much for your wonderful review! It means a lot to know that our service met your expectations. We truly appreciate your business and look forward to serving you again in the future. - ${technicianName}`;
         } else if (rating >= 3) {
-            return "Thank you for your feedback. We appreciate you taking the time to share your experience. If there's anything we can do to improve our service, please don't hesitate to reach out to us directly.";
+            return `Thank you for your feedback. We appreciate you taking the time to share your experience. If there's anything we can do to improve our service, please don't hesitate to reach out to us directly. - ${technicianName}`;
         } else {
-            return "Thank you for your feedback. We take all customer concerns seriously and would like the opportunity to make this right. Please contact us directly so we can address your concerns and improve your experience.";
+            return `Thank you for your feedback. We take all customer concerns seriously and would like the opportunity to make this right. Please contact us directly so we can address your concerns and improve your experience. - ${technicianName}`;
         }
     }
 
-    // Keep all your other existing methods (analyzeSentiment, extractTechnicianName, etc.)
+    // Keep all your other existing methods unchanged
     async analyzeSentiment(reviewText) {
         if (!this.isConfigured()) {
             return this.basicSentimentAnalysis(reviewText);

@@ -1,11 +1,10 @@
-// Replace the entire PromptPlayground component with this working version:
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Edit3, Save, TestTube, FileText, Zap, Eye, EyeOff, Clock, User, Star,
-    MessageSquare, Sparkles, CheckCircle, Plus, ArrowLeft, Home, AlertCircle, Copy, Check
+    MessageSquare, Sparkles, CheckCircle, Plus, ArrowLeft, Home, AlertCircle,
+    Copy, Check, Crown, Shield, Users
 } from 'lucide-react';
 import { useAuth } from '../../context/UnifiedAuthContext.jsx';
 import './PromptPlayground.scss';
@@ -43,18 +42,60 @@ const PromptPlayground = () => {
     const [copied, setCopied] = useState(false);
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [newPrompt, setNewPrompt] = useState({
-        name: '', type: 'response_generation', content: '', description: ''
+        name: '',
+        type: 'response_generation',
+        content: '',
+        description: '',
+        isSystemPrompt: false // New field for system vs personal prompts
     });
 
     // Helper functions
     const canEditPrompt = (prompt) => {
         if (userRole === 'admin' || userRole === 'manager') return true;
-        if (userRole === 'technician') return prompt.createdBy === technician?.name;
+        if (userRole === 'technician') {
+            // Technicians can edit their own prompts or prompts they created
+            return prompt.technicianId === technician?.id ||
+                (prompt.createdBy === technician?.name && prompt.technicianId === null);
+        }
         return false;
     };
 
-    const isSystemPrompt = (prompt) => ['system', 'admin', 'System Administrator'].includes(prompt.createdBy);
+    const canActivatePrompt = (prompt) => {
+        if (userRole === 'admin' || userRole === 'manager') return true;
+        if (userRole === 'technician') {
+            // Technicians can activate their own prompts or system prompts
+            return prompt.technicianId === technician?.id || prompt.technicianId === null;
+        }
+        return false;
+    };
+
+    const isSystemPrompt = (prompt) => prompt.technicianId === null;
+    const isPersonalPrompt = (prompt) => prompt.technicianId === technician?.id;
+    const isOtherTechnicianPrompt = (prompt) => prompt.technicianId !== null && prompt.technicianId !== technician?.id;
+
+    // NEW: Check if prompt is active for current technician
+    const isActiveForCurrentTechnician = (prompt) => {
+        return prompt.isActiveForCurrentTechnician ||
+            (prompt.technicianId === technician?.id && prompt.isActive);
+    };
+
     const getTechnicianDisplayName = (tech) => tech?.name || tech?.firstName || 'Unknown Technician';
+
+    const getPromptTypeLabel = (prompt) => {
+        if (isSystemPrompt(prompt)) return 'System';
+        if (isPersonalPrompt(prompt)) return 'Personal';
+        if (isOtherTechnicianPrompt(prompt)) {
+            return prompt.technician ? `${prompt.technician.name}'s` : 'Other';
+        }
+        return 'Unknown';
+    };
+
+    const getPromptTypeColor = (prompt) => {
+        if (isSystemPrompt(prompt)) return 'system';
+        if (isPersonalPrompt(prompt)) return 'personal';
+        if (isOtherTechnicianPrompt(prompt)) return 'other';
+        return 'default';
+    };
 
     const buildUrlWithParams = (path) => {
         const searchParams = new URLSearchParams();
@@ -70,30 +111,33 @@ const PromptPlayground = () => {
         navigate(dashboardUrl);
     };
 
-    // API Functions - Using original endpoints with role-based frontend logic
+    // API Functions - Updated for technician-specific prompts
     const fetchPrompts = async () => {
         try {
             console.log('📝 Fetching prompts...');
-            const response = await fetch('http://localhost:8000/api/prompts?type=response_generation');
+            const queryParams = new URLSearchParams({
+                type: 'response_generation'
+            });
+
+            // Add technician ID for technician-specific filtering and activation status
+            if (technician?.id) {
+                queryParams.set('technicianId', technician.id);
+            }
+
+            const response = await fetch(`http://localhost:8000/api/prompts?${queryParams}`);
             const result = await response.json();
             console.log('📝 Prompts result:', result);
 
             if (result.success) {
-                // Apply client-side filtering based on role
-                let filteredPrompts = result.data;
+                setPrompts(result.data);
+                if (result.data.length > 0 && !selectedPrompt) {
+                    // Prioritize personal prompts, then system prompts
+                    const personalPrompts = result.data.filter(p => isPersonalPrompt(p));
+                    const systemPrompts = result.data.filter(p => isSystemPrompt(p));
+                    const firstPrompt = personalPrompts[0] || systemPrompts[0] || result.data[0];
 
-                if (userRole === 'technician' && technician?.name) {
-                    // Filter to show only user's prompts and system prompts
-                    filteredPrompts = result.data.filter(prompt =>
-                        prompt.createdBy === technician.name ||
-                        ['system', 'admin', 'System Administrator'].includes(prompt.createdBy)
-                    );
-                }
-
-                setPrompts(filteredPrompts);
-                if (filteredPrompts.length > 0 && !selectedPrompt) {
-                    setSelectedPrompt(filteredPrompts[0]);
-                    setEditingPrompt(filteredPrompts[0].content);
+                    setSelectedPrompt(firstPrompt);
+                    setEditingPrompt(firstPrompt.content);
                 }
             }
         } catch (error) {
@@ -118,13 +162,20 @@ const PromptPlayground = () => {
 
     const loadActivePrompts = async () => {
         try {
-            const response = await fetch('http://localhost:8000/api/prompts/active/response_generation');
+            const queryParams = new URLSearchParams();
+            if (technician?.id) {
+                queryParams.set('technicianId', technician.id);
+            }
+
+            const response = await fetch(`http://localhost:8000/api/prompts/active/response_generation?${queryParams}`);
             const result = await response.json();
             if (result.success) {
                 setResponsePrompt(result.data.content);
             }
         } catch (error) {
             console.error('Error loading active prompts:', error);
+            // If no active prompt found, clear the response prompt
+            setResponsePrompt('');
         }
     };
 
@@ -138,21 +189,42 @@ const PromptPlayground = () => {
         setLoading(true);
 
         try {
+            const promptData = {
+                ...newPrompt,
+                createdBy: technicianName
+            };
+
+            // Add technician association for personal prompts
+            if (!newPrompt.isSystemPrompt && technician?.id) {
+                promptData.technicianId = technician.id;
+            }
+
+            // Only admins/managers can create system prompts
+            if (newPrompt.isSystemPrompt && userRole === 'technician') {
+                alert('Only administrators and managers can create system prompts');
+                setLoading(false);
+                return;
+            }
+
             const response = await fetch('http://localhost:8000/api/prompts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...newPrompt,
-                    createdBy: technicianName
-                })
+                body: JSON.stringify(promptData)
             });
 
             const result = await response.json();
             if (result.success) {
                 await fetchPrompts();
                 setShowCreateForm(false);
-                setNewPrompt({ name: '', type: 'response_generation', content: '', description: '' });
-                alert(`Prompt created successfully by ${technicianName}!`);
+                setNewPrompt({
+                    name: '',
+                    type: 'response_generation',
+                    content: '',
+                    description: '',
+                    isSystemPrompt: false
+                });
+                const promptType = newPrompt.isSystemPrompt ? 'system' : 'personal';
+                alert(`${promptType} prompt created successfully by ${technicianName}!`);
             } else {
                 alert(result.message || 'Error creating prompt');
             }
@@ -168,7 +240,7 @@ const PromptPlayground = () => {
         if (!selectedPrompt) return;
 
         if (!canEditPrompt(selectedPrompt)) {
-            alert('You can only edit prompts that you created');
+            alert('You can only edit prompts that you created or own');
             return;
         }
 
@@ -197,16 +269,35 @@ const PromptPlayground = () => {
     };
 
     const handleActivatePrompt = async (promptId) => {
+        const prompt = prompts.find(p => p.id === promptId);
+
+        if (!canActivatePrompt(prompt)) {
+            alert('You can only activate your own prompts or system prompts');
+            return;
+        }
+
         setLoading(true);
         try {
+            const requestBody = {
+                technicianId: technician.id // Always include technician ID for new logic
+            };
+
             const response = await fetch(`http://localhost:8000/api/prompts/${promptId}/activate`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
             });
 
             const result = await response.json();
             if (result.success) {
-                await fetchPrompts();
-                alert('Prompt activated successfully!');
+                await fetchPrompts(); // Refresh to get updated activation status
+                const promptType = isSystemPrompt(prompt) ? 'system' : 'personal';
+                alert(`${promptType} prompt activated successfully for you!`);
+
+                // If we're on the testing tab, reload the active prompt
+                if (activeTab === 'testing') {
+                    loadActivePrompts();
+                }
             } else {
                 alert(result.message || 'Error activating prompt');
             }
@@ -230,13 +321,16 @@ const PromptPlayground = () => {
                     reviewData: selectedReview,
                     technicianData: selectedTechnician,
                     responsePrompt: responsePrompt,
-                    useCustomPrompts: true
+                    useCustomPrompts: true,
+                    technicianId: technician?.id // Include technician ID for testing
                 })
             });
 
             const result = await response.json();
             if (result.success) {
                 setTestResults(result.data);
+            } else {
+                alert(result.message || 'Error testing prompt');
             }
         } catch (error) {
             console.error('Error testing prompt:', error);
@@ -306,16 +400,165 @@ const PromptPlayground = () => {
         );
     }
 
+    // UPDATED: Render individual prompt item with correct activation status
+    const renderPromptItem = (prompt) => {
+        const isActive = isActiveForCurrentTechnician(prompt);
+
+        return (
+            <div
+                key={prompt.id}
+                className={`prompt-item ${
+                    selectedPrompt?.id === prompt.id ? 'prompt-item--selected' : ''
+                } prompt-item--${getPromptTypeColor(prompt)} ${
+                    isActive ? 'prompt-item--active' : ''
+                }`}
+                onClick={() => {
+                    setSelectedPrompt(prompt);
+                    setEditingPrompt(prompt.content);
+                    setIsEditing(false);
+                }}
+            >
+                <div className="prompt-item__header">
+                    <h4>
+                        {prompt.name}
+                        <span className={`prompt-item__type-badge prompt-item__type-badge--${getPromptTypeColor(prompt)}`}>
+                            {isSystemPrompt(prompt) && <Crown size={12} />}
+                            {isPersonalPrompt(prompt) && <User size={12} />}
+                            {isOtherTechnicianPrompt(prompt) && <Shield size={12} />}
+                            {getPromptTypeLabel(prompt)}
+                        </span>
+                    </h4>
+                    {isActive && (
+                        <span className="prompt-item__active-badge">
+                            Active for You
+                        </span>
+                    )}
+                </div>
+                <p className="prompt-item__description">{prompt.description}</p>
+                <div className="prompt-item__meta">
+                    <span className="prompt-item__meta-type">{prompt.type}</span>
+                    <span className="prompt-item__meta-creator">
+                        <User size={12} />
+                        {prompt.createdBy}
+                    </span>
+                    {/* Show ownership info */}
+                    {isSystemPrompt(prompt) && (
+                        <span className="prompt-item__meta-system">
+                            <Crown size={12} />
+                            System Wide
+                        </span>
+                    )}
+                    {isPersonalPrompt(prompt) && (
+                        <span className="prompt-item__meta-personal">
+                            <User size={12} />
+                            Your Prompt
+                        </span>
+                    )}
+                    {isOtherTechnicianPrompt(prompt) && (
+                        <span className="prompt-item__meta-other">
+                            <Shield size={12} />
+                            {prompt.technician?.name || 'Other User'}
+                        </span>
+                    )}
+                    {/* Add creation date if available */}
+                    {prompt.createdAt && (
+                        <span className="prompt-item__meta-date">
+                            <Clock size={12} />
+                            {new Date(prompt.createdAt).toLocaleDateString()}
+                        </span>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    // UPDATED: Render prompt editor header with correct activation status
+    const renderPromptEditorHeader = () => {
+        if (!selectedPrompt) return null;
+
+        const isActive = isActiveForCurrentTechnician(selectedPrompt);
+
+        return (
+            <div className="prompt-editor__header">
+                <h3>
+                    {canEditPrompt(selectedPrompt) ? 'Edit Prompt' : 'View Prompt'}
+                    {isActive && (
+                        <span className="prompt-editor__active-indicator">
+                            (Currently Active for You)
+                        </span>
+                    )}
+                </h3>
+                <div className="prompt-editor__actions">
+                    {!isActive && canActivatePrompt(selectedPrompt) && (
+                        <button
+                            onClick={() => handleActivatePrompt(selectedPrompt.id)}
+                            disabled={loading}
+                            className="prompt-editor__activate-btn"
+                        >
+                            <Zap size={16} />
+                            Activate {isSystemPrompt(selectedPrompt) ? 'System' : 'Personal'} Prompt
+                        </button>
+                    )}
+                    {canEditPrompt(selectedPrompt) && (
+                        <>
+                            {isEditing ? (
+                                <>
+                                    <button
+                                        onClick={handleSavePrompt}
+                                        disabled={loading}
+                                        className="prompt-editor__save-btn"
+                                    >
+                                        <Save size={16} />
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setEditingPrompt(selectedPrompt.content);
+                                        }}
+                                        className="prompt-editor__cancel-btn"
+                                    >
+                                        Cancel
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={() => setIsEditing(true)}
+                                    className="prompt-editor__edit-btn"
+                                >
+                                    <Edit3 size={16} />
+                                    Edit
+                                </button>
+                            )}
+                        </>
+                    )}
+                    {!canEditPrompt(selectedPrompt) && (
+                        <span className="prompt-editor__readonly-notice">
+                            {isSystemPrompt(selectedPrompt) ? 'System prompt (read-only)' :
+                                isOtherTechnicianPrompt(selectedPrompt) ? 'Another technician\'s prompt' :
+                                    'Read-only prompt'}
+                        </span>
+                    )}
+                    {!canActivatePrompt(selectedPrompt) && !isActive && (
+                        <span className="prompt-editor__activation-notice">
+                            Cannot activate this prompt
+                        </span>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const renderPromptManagement = () => (
         <div className="prompt-management">
             {/* Header */}
             <div className="prompt-management__header">
                 <div className="prompt-management__header-content">
                     <h2>Prompt Management</h2>
-                    <p>Manage and edit AI prompts for response generation</p>
+                    <p>Manage AI prompts for response generation - create personal prompts or use system prompts</p>
                     {userRole === 'technician' && (
                         <div className="prompt-management__role-notice">
-                            <span>You can see system prompts and your own prompts. Only admins can activate prompts.</span>
+                            <span>You can see system prompts and your personal prompts. You can activate your own prompts independently.</span>
                         </div>
                     )}
                 </div>
@@ -362,6 +605,35 @@ const PromptPlayground = () => {
                                 />
                             </div>
                             <div className="create-form__field">
+                                <label className="create-form__field-label">Prompt Type</label>
+                                <div className="create-form__prompt-type">
+                                    <label className="create-form__radio-label">
+                                        <input
+                                            type="radio"
+                                            checked={!newPrompt.isSystemPrompt}
+                                            onChange={() => setNewPrompt({ ...newPrompt, isSystemPrompt: false })}
+                                            className="create-form__radio"
+                                        />
+                                        <User size={16} />
+                                        <span>Personal Prompt</span>
+                                        <small>Only you can see and use this prompt</small>
+                                    </label>
+                                    {(userRole === 'admin' || userRole === 'manager') && (
+                                        <label className="create-form__radio-label">
+                                            <input
+                                                type="radio"
+                                                checked={newPrompt.isSystemPrompt}
+                                                onChange={() => setNewPrompt({ ...newPrompt, isSystemPrompt: true })}
+                                                className="create-form__radio"
+                                            />
+                                            <Users size={16} />
+                                            <span>System Prompt</span>
+                                            <small>Available to all technicians</small>
+                                        </label>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="create-form__field">
                                 <label className="create-form__field-label">Content</label>
                                 <textarea
                                     value={newPrompt.content}
@@ -379,7 +651,7 @@ const PromptPlayground = () => {
                                 className="create-form__submit-btn"
                             >
                                 <Save size={16} />
-                                Create Prompt
+                                Create {newPrompt.isSystemPrompt ? 'System' : 'Personal'} Prompt
                             </button>
                             <button
                                 onClick={() => setShowCreateForm(false)}
@@ -406,54 +678,7 @@ const PromptPlayground = () => {
                         )}
                     </div>
                     <div className="prompt-list__items">
-                        {prompts.map((prompt) => (
-                            <div
-                                key={prompt.id}
-                                className={`prompt-item ${
-                                    selectedPrompt?.id === prompt.id ? 'prompt-item--selected' : ''
-                                } ${isSystemPrompt(prompt) ? 'prompt-item--system' : ''}`}
-                                onClick={() => {
-                                    setSelectedPrompt(prompt);
-                                    setEditingPrompt(prompt.content);
-                                    setIsEditing(false);
-                                }}
-                            >
-                                <div className="prompt-item__header">
-                                    <h4>
-                                        {prompt.name}
-                                        {isSystemPrompt(prompt) && (
-                                            <span className="prompt-item__system-badge">System</span>
-                                        )}
-                                    </h4>
-                                    {prompt.isActive && (
-                                        <span className="prompt-item__active-badge">
-                                            Active
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="prompt-item__description">{prompt.description}</p>
-                                <div className="prompt-item__meta">
-                                    <span className="prompt-item__meta-type">{prompt.type}</span>
-                                    <span className="prompt-item__meta-creator">
-                                        <User size={12} />
-                                        {prompt.createdBy}
-                                    </span>
-                                    {/* Show if user can edit this prompt */}
-                                    {!canEditPrompt(prompt) && (
-                                        <span className="prompt-item__meta-readonly">
-                                            View Only
-                                        </span>
-                                    )}
-                                    {/* Add creation date if available */}
-                                    {prompt.createdAt && (
-                                        <span className="prompt-item__meta-date">
-                                            <Clock size={12} />
-                                            {new Date(prompt.createdAt).toLocaleDateString()}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
+                        {prompts.map(renderPromptItem)}
                     </div>
                 </div>
 
@@ -461,65 +686,16 @@ const PromptPlayground = () => {
                 <div className="prompt-editor">
                     {selectedPrompt && (
                         <>
-                            <div className="prompt-editor__header">
-                                <h3>
-                                    {canEditPrompt(selectedPrompt) ? 'Edit Prompt' : 'View Prompt'}
-                                </h3>
-                                <div className="prompt-editor__actions">
-                                    {!selectedPrompt.isActive && (
-                                        <button
-                                            onClick={() => handleActivatePrompt(selectedPrompt.id)}
-                                            disabled={loading}
-                                            className="prompt-editor__activate-btn"
-                                        >
-                                            <Zap size={16} />
-                                            Activate
-                                        </button>
-                                    )}
-                                    {canEditPrompt(selectedPrompt) && (
-                                        <>
-                                            {isEditing ? (
-                                                <>
-                                                    <button
-                                                        onClick={handleSavePrompt}
-                                                        disabled={loading}
-                                                        className="prompt-editor__save-btn"
-                                                    >
-                                                        <Save size={16} />
-                                                        Save
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            setIsEditing(false);
-                                                            setEditingPrompt(selectedPrompt.content);
-                                                        }}
-                                                        className="prompt-editor__cancel-btn"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <button
-                                                    onClick={() => setIsEditing(true)}
-                                                    className="prompt-editor__edit-btn"
-                                                >
-                                                    <Edit3 size={16} />
-                                                    Edit
-                                                </button>
-                                            )}
-                                        </>
-                                    )}
-                                    {!canEditPrompt(selectedPrompt) && (
-                                        <span className="prompt-editor__readonly-notice">
-                                            {isSystemPrompt(selectedPrompt) ? 'System prompt' : 'Created by another user'}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
+                            {renderPromptEditorHeader()}
 
                             <div className="editor-container">
                                 <div className="editor-container__header">
-                                    <h4>{selectedPrompt.name}</h4>
+                                    <h4>
+                                        {selectedPrompt.name}
+                                        <span className={`prompt-type-indicator prompt-type-indicator--${getPromptTypeColor(selectedPrompt)}`}>
+                                            {getPromptTypeLabel(selectedPrompt)}
+                                        </span>
+                                    </h4>
                                     <button
                                         onClick={() => setShowVariables(!showVariables)}
                                         className="editor-container__variables-btn"
@@ -567,7 +743,13 @@ const PromptPlayground = () => {
             {/* Header */}
             <div className="testing-section__header">
                 <h2>Prompt Testing</h2>
-                <p>Test your prompts with sample or custom reviews</p>
+                <p>Test your prompts with sample or custom reviews using your active prompt</p>
+                {!responsePrompt && (
+                    <div className="testing-section__no-prompt-warning">
+                        <AlertCircle size={16} />
+                        <span>No active prompt found. Please activate a prompt first.</span>
+                    </div>
+                )}
             </div>
 
             <div className="testing-section__grid">
@@ -678,7 +860,7 @@ const PromptPlayground = () => {
                     {/* Test Button */}
                     <button
                         onClick={handleTestPrompt}
-                        disabled={loading || !selectedReview}
+                        disabled={loading || !selectedReview || !responsePrompt}
                         className="test-button"
                     >
                         {loading ? (
@@ -689,10 +871,15 @@ const PromptPlayground = () => {
                         ) : (
                             <>
                                 <TestTube size={18} />
-                                Test Prompts
+                                Test Your Active Prompt
                             </>
                         )}
                     </button>
+                    {!responsePrompt && (
+                        <p className="test-button__warning">
+                            Please activate a prompt first to enable testing
+                        </p>
+                    )}
                 </div>
 
                 {/* Right Side - Prompts & Results */}
@@ -701,7 +888,13 @@ const PromptPlayground = () => {
                     <div className="prompt-container">
                         <div className="prompt-container__header">
                             <Sparkles size={18} />
-                            <h3>Response Generation Prompt</h3>
+                            <h3>Your Active Prompt</h3>
+                            <small>
+                                {responsePrompt
+                                    ? 'This is your currently active prompt that will be used for testing'
+                                    : 'No active prompt - please activate a prompt first'
+                                }
+                            </small>
                         </div>
                         <div className="prompt-container__content">
                             <textarea
@@ -709,6 +902,7 @@ const PromptPlayground = () => {
                                 onChange={(e) => setResponsePrompt(e.target.value)}
                                 rows={15}
                                 className="prompt-container__textarea"
+                                placeholder={!responsePrompt ? 'No active prompt found. Please go to Prompt Management and activate a prompt.' : ''}
                             />
                         </div>
                     </div>
@@ -724,6 +918,11 @@ const PromptPlayground = () => {
                                 <div className="test-results__header-title">
                                     <CheckCircle size={18} />
                                     Generated Response
+                                    {testResults.promptType && (
+                                        <span className="test-results__prompt-type">
+                                            ({testResults.promptType} prompt)
+                                        </span>
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => copyToClipboard(testResults.response)}
@@ -749,23 +948,6 @@ const PromptPlayground = () => {
         </div>
     );
 
-    // Add loading state check at the beginning of your component render
-    if (!technician) {
-        return (
-            <div className="prompt-playground">
-                <div className="prompt-playground__error">
-                    <AlertCircle size={48} />
-                    <h2>Authentication Required</h2>
-                    <p>Unable to load technician information. Please access this page through Ejento.</p>
-                    <button onClick={handleReturnToMain} className="prompt-playground__return-btn">
-                        <Home size={16} />
-                        Return to Dashboard
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="prompt-playground">
             <div className="prompt-playground__container">
@@ -773,7 +955,7 @@ const PromptPlayground = () => {
                 <div className="prompt-playground__header">
                     <div className="prompt-playground__header-content">
                         <h1>Prompt Playground</h1>
-                        <p>Create, edit, and test AI prompts for review responses</p>
+                        <p>Create, edit, and test personal AI prompts for review responses</p>
                     </div>
                     <button
                         onClick={handleReturnToMain}
