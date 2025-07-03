@@ -460,13 +460,6 @@ const PromptPlayground = () => {
                             {prompt.technician?.name || 'Other User'}
                         </span>
                     )}
-                    {/* Add creation date if available */}
-                    {prompt.createdAt && (
-                        <span className="prompt-item__meta-date">
-                            <Clock size={12} />
-                            {new Date(prompt.createdAt).toLocaleDateString()}
-                        </span>
-                    )}
                 </div>
             </div>
         );
